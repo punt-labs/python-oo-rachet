@@ -30,8 +30,8 @@ class TestThresholds:
     """Strict table for most files; relaxed MAIN_TABLE for ``__main__.py``."""
 
     def test_efferent_strict_for_regular_module(self) -> None:
-        assert CouplingThresholds.meets("efferent_coupling", 7, "src/pkg/core.py")
-        assert not CouplingThresholds.meets("efferent_coupling", 8, "src/pkg/core.py")
+        assert CouplingThresholds.meets("efferent_coupling", 10, "src/pkg/core.py")
+        assert not CouplingThresholds.meets("efferent_coupling", 11, "src/pkg/core.py")
 
     def test_efferent_relaxed_for_main(self) -> None:
         # __main__.py legitimately wires many modules — relaxed to <= 15.

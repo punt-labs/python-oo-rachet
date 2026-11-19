@@ -6,6 +6,7 @@ import ast
 from collections.abc import Iterator
 from typing import ClassVar, Self
 
+from oo_ratchet.oo.class_kinds import ClassKinds
 from oo_ratchet.oo.code_lines import CodeLines
 
 
@@ -39,7 +40,7 @@ class ModuleMetrics:
         return {
             "file": self._path,
             "module_size": self._source_lines,
-            "classes_per_module": self._count_classes(),
+            "classes_per_module": ClassKinds(self._tree).count,
             "top_level_functions": self._count_top_level_functions(),
             "top_level_statements": self._count_top_level_statements(),
             "method_ratio": self._method_ratio(),
