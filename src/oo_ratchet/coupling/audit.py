@@ -50,13 +50,14 @@ class CouplingAudit:
         commit: str | None,
         source: str | None = None,
         reason: str | None = None,
+        removed: list[str] | None = None,
     ) -> None:
         """Append one verdict entry, recording its source (PR/bead ref).
 
         ``reason`` carries the human justification for a ``relaxed`` verdict;
         it is an audit marker, not an enforcement gate.
         """
-        entry = {
+        entry: dict[str, object] = {
             "ts": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "commit": commit,
             "source": source,
@@ -67,6 +68,8 @@ class CouplingAudit:
             "reason": reason,
             "deltas": deltas,
         }
+        if removed:
+            entry["removed"] = removed
         with self._path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
@@ -117,10 +120,13 @@ class CouplingAudit:
     def _parse(line: str) -> dict[str, object]:
         """Parse one audit line, or raise ``CouplingAuditError`` naming it."""
         try:
-            parsed: dict[str, object] = json.loads(line)
+            parsed = json.loads(line)
         except json.JSONDecodeError as exc:
             msg = f"malformed coupling audit entry {line[:80]!r}: {exc}"
             raise CouplingAuditError(msg) from exc
+        if not isinstance(parsed, dict):
+            msg = f"malformed coupling audit entry {line[:80]!r}: not a JSON object"
+            raise CouplingAuditError(msg)
         return parsed
 
     def _raw_lines(self) -> list[str]:
@@ -152,6 +158,9 @@ class CouplingAudit:
             except json.JSONDecodeError as exc:
                 msg = f"corrupt coupling audit log {self._path}: {exc}"
                 raise CouplingAuditError(msg) from exc
+            if not isinstance(entry, dict):
+                msg = f"corrupt coupling audit log {self._path}: entry is not an object"
+                raise CouplingAuditError(msg)
             commit = entry.get("commit") or "?"
             lines.append(
                 f"{entry.get('ts', '?')!s:<22} {commit!s:<10} "

@@ -183,8 +183,17 @@ class Cli:
             print(line)
         return outcome.exit_code
 
+    def _unscorable(self, scorer: Scorer) -> Outcome | None:
+        """Fail a single-file target that only produced an error row."""
+        if self._opts.src.is_file() and scorer.parse_errors:
+            return Outcome.failed(f"FAIL: cannot score {self._opts.src}")
+        return None
+
     def _run_action(self, scorer: Scorer) -> Outcome | None:
         opts = self._opts
+        unscorable = self._unscorable(scorer)
+        if unscorable is not None:
+            return unscorable
         ratchet = Ratchet(self._root, self._git)
         writer = BaselineWriter(self._root, self._git)
         if opts.check:

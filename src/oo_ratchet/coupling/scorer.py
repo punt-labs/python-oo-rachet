@@ -102,7 +102,12 @@ class CouplingScorer:
             # (fail-closed), rather than crashing the whole scoring pass.
             return {"file": key, "error": str(exc)}
         mod_key = layout.key_for(py_file)
-        resolver = ImportResolver(mod_key, layout.modules, layout.name)
+        resolver = ImportResolver(
+            mod_key,
+            layout.modules,
+            layout.name,
+            is_package=py_file.name == "__init__.py",
+        )
         metrics = ModuleCouplingMetrics(key, tree, resolver).compute()
         metrics["circular_imports"] = 1 if mod_key in cycle else 0
         return metrics

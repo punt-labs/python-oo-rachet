@@ -32,6 +32,7 @@ extraction or not.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from typing import Self
 
@@ -111,15 +112,15 @@ class _CodeLineFilter:
 class ExtractionDetector:
     """Find which baselined origin, if any, explains a new file's content."""
 
-    _removed_by_path: dict[str, frozenset[str]]
+    _removed_by_path: dict[str, Counter[str]]
 
-    def __new__(cls, removed_by_path: dict[str, frozenset[str]]) -> Self:
+    def __new__(cls, removed_by_path: dict[str, Counter[str]]) -> Self:
         self = super().__new__(cls)
         self._removed_by_path = removed_by_path
         return self
 
     @staticmethod
-    def substantive_lines(lines: Iterable[str]) -> frozenset[str]:
+    def substantive_lines(lines: Iterable[str]) -> Counter[str]:
         """Return the stripped, non-trivial lines from ``lines``.
 
         Imports, comments, docstrings and trivial bodies are module setup,
@@ -130,9 +131,9 @@ class ExtractionDetector:
         be in diff order.
         """
         code = _CodeLineFilter()
-        return frozenset(line.strip() for line in lines if code.keeps(line))
+        return Counter(line.strip() for line in lines if code.keeps(line))
 
-    def origin_of(self, new_lines: frozenset[str]) -> str | None:
+    def origin_of(self, new_lines: Counter[str]) -> str | None:
         """Return the origin path whose removed lines best explain ``new_lines``.
 
         ``None`` when no candidate origin explains at least
@@ -151,14 +152,14 @@ class ExtractionDetector:
             shared = new_lines & removed
             if not self._moved_a_function(shared):
                 continue
-            overlap = len(shared) / len(new_lines)
+            overlap = shared.total() / new_lines.total()
             if overlap > best_overlap:
                 best_overlap = overlap
                 best_path = path
         return best_path if best_overlap >= _OVERLAP_THRESHOLD else None
 
     @staticmethod
-    def _moved_a_function(shared: frozenset[str]) -> bool:
+    def _moved_a_function(shared: Counter[str]) -> bool:
         """Return whether ``shared`` holds a ``def`` line and a body line."""
         has_def = any(line.startswith(_DEF_PREFIXES) for line in shared)
         has_body = any(not line.startswith(_DEF_PREFIXES) for line in shared)

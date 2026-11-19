@@ -99,15 +99,21 @@ class FileBless:
             accepted_current[path] = entry
         return accepted, accepted_current, refused
 
-    @staticmethod
     def _resolve(
+        self,
         requested: str,
         current: dict[str, dict[str, float]],
         resolved_index: dict[Path, str],
     ) -> str | None:
         if requested in current:
             return requested
-        return resolved_index.get(Path(requested).resolve())
+        path = Path(requested)
+        if not path.is_absolute():
+            # Repo-relative first, then relative to the working directory.
+            hit = resolved_index.get((self._baseline.path.parent / path).resolve())
+            if hit is not None:
+                return hit
+        return resolved_index.get(path.resolve())
 
     @staticmethod
     def _gate_detail(entry: dict[str, float], gated: list[str]) -> str:

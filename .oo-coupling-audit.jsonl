@@ -1,1 +1,2 @@
 {"ts":"2026-11-19T00:21:54Z","commit":"ce63f5d","source":"seed","files_scored":47,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","reason":null,"deltas":{}}
+{"ts":"2026-11-19T00:47:51Z","commit":"cf6f884","source":null,"files_scored":47,"files_improved":0,"files_regressed":1,"verdict":"relaxed","reason":"Qodo PR #1: file-level suppression counting split into helpers","deltas":{"src/oo_ratchet/suppression/patterns.py":{"max_lcom":[0.238,0.429],"avg_lcom":[0.238,0.429]}}}

@@ -38,8 +38,10 @@ check-suppressions:
 	uv run oo-ratchet suppressions src/pkg/ --check $(SUPPRESSION_BASE)
 ```
 
-CI passes `--base-ref origin/main --require-base` on PRs. On the post-merge
-`push: [main]` run, pass `--tripwire` to the coupling gate so the one-time
+On PRs, pass the merge-base SHA: `--base-ref "$(git merge-base origin/main HEAD)"
+--require-base` (an explicit ref is compared as given, so `origin/main` itself
+would pull in later main changes). On the post-merge `push: [main]` run, pass
+`--base-ref HEAD~1 --require-base --tripwire` to every gate so the one-time
 adoption merge bootstrap-passes. `oo-ratchet <gate> --help` lists each gate's
 flags. Baseline and audit files (`.oo-baseline.json`, `.oo-audit.jsonl`,
 `.oo-coupling-baseline.json`, ...) keep the same names as the embedded copies,

@@ -38,7 +38,12 @@ class ImportGraph:
                 # graph; the scorer records the same file as an error so the
                 # ratchet still fails closed on it when it is touched.
                 continue
-            resolver = ImportResolver(key, layout.modules, layout.name)
+            resolver = ImportResolver(
+                key,
+                layout.modules,
+                layout.name,
+                is_package=py_file.name == "__init__.py",
+            )
             edges[key] = resolver.internal_imports(tree)
         return cls(edges)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tokenize
 from pathlib import Path
 from typing import Self
 
@@ -29,9 +30,22 @@ class Scanner:
         return self._report
 
     @staticmethod
+    def _read(path: Path) -> str:
+        """Decode ``path`` honoring its PEP 263 coding cookie.
+
+        Without a usable cookie it is read as strict UTF-8, so undecodable
+        bytes still raise and the CLI fails closed.
+        """
+        try:
+            with tokenize.open(path) as f:
+                return f.read()
+        except SyntaxError:
+            return path.read_text(encoding="utf-8")
+
+    @staticmethod
     def _collect_files(target: Path) -> list[FileSuppressions]:
         if target.is_file():
-            return [FileSuppressions(str(target), target.read_text())]
+            return [FileSuppressions(str(target), Scanner._read(target))]
         if not target.is_dir():
             return []
         results: list[FileSuppressions] = []
@@ -42,5 +56,5 @@ class Scanner:
             # would undercount a file that has NEW suppressions -- the total
             # wouldn't rise and a real regression would pass. Fail closed instead;
             # the CLI turns the OSError into a controlled non-zero.
-            results.append(FileSuppressions(str(py_file), py_file.read_text()))
+            results.append(FileSuppressions(str(py_file), Scanner._read(py_file)))
         return results

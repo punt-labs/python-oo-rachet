@@ -68,7 +68,7 @@ class GitRepo:
     def _git(self, args: list[str]) -> str | None:
         if self._root is None:
             return None  # not in a repo: degrade, never run against the ambient CWD
-        return self._run(["git", *args], cwd=self._root)
+        return self._run(["git", "-c", "core.quotePath=false", *args], cwd=self._root)
 
     def short_head(self) -> str | None:
         """Return the abbreviated HEAD commit hash."""

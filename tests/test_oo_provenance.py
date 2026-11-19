@@ -9,6 +9,7 @@ raises ``GitError`` rather than fail-open).
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING
 
 import pytest
@@ -857,26 +858,26 @@ class TestExtractionDetector:
     """Unit coverage for the pure overlap-detection logic (no git)."""
 
     def test_origin_of_picks_the_best_matching_origin(self) -> None:
-        origin_a = frozenset({"def keep_this_one(x: int) -> int:", "return x + 1"})
-        origin_b = frozenset({"def totally_unrelated() -> None:", "pass"})
+        origin_a = Counter({"def keep_this_one(x: int) -> int:", "return x + 1"})
+        origin_b = Counter({"def totally_unrelated() -> None:", "pass"})
         detector = ExtractionDetector({"a.py": origin_a, "b.py": origin_b})
-        new_lines = frozenset({"def keep_this_one(x: int) -> int:", "return x + 1"})
+        new_lines = Counter({"def keep_this_one(x: int) -> int:", "return x + 1"})
         assert detector.origin_of(new_lines) == "a.py"
 
     def test_origin_of_returns_none_below_threshold(self) -> None:
-        origin = frozenset({"def unrelated_thing() -> None:", "return None"})
+        origin = Counter({"def unrelated_thing() -> None:", "return None"})
         detector = ExtractionDetector({"a.py": origin})
-        new_lines = frozenset({"def brand_new_thing() -> int:", "return 42"})
+        new_lines = Counter({"def brand_new_thing() -> int:", "return 42"})
         assert detector.origin_of(new_lines) is None
 
     def test_origin_of_returns_none_for_empty_new_lines(self) -> None:
-        detector = ExtractionDetector({"a.py": frozenset({"def f() -> None:"})})
-        assert detector.origin_of(frozenset()) is None
+        detector = ExtractionDetector({"a.py": Counter({"def f() -> None:"})})
+        assert detector.origin_of(Counter()) is None
 
     def test_substantive_lines_filters_short_and_blank_lines(self) -> None:
         lines = ["", "   ", ")", "def real_function_name() -> None:", "  x  "]
         result = ExtractionDetector.substantive_lines(lines)
-        assert result == {"def real_function_name() -> None:"}
+        assert result == Counter({"def real_function_name() -> None:": 1})
 
     def test_shape_metrics_is_exactly_the_two_class_shape_metrics(self) -> None:
         assert {"method_ratio", "class_to_func_ratio"} == SHAPE_METRICS

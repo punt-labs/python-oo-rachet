@@ -102,6 +102,11 @@ class SuppressionBaseline:
         bootstrap-passes.
         """
         if tripwire:
+            if not self.has_baseline:
+                return Outcome.failed(
+                    "FAIL: --tripwire with no baseline on main; only the "
+                    "adoption commit that adds the baseline may bootstrap"
+                )
             return Outcome.passed(
                 "Base predates baseline adoption on push tripwire -- "
                 "one-time bootstrap pass"
