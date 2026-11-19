@@ -24,6 +24,10 @@ class CouplingAudit:
 
     FILENAME: str = ".oo-coupling-audit.jsonl"
 
+    # Verdicts whose deltas waive a regression at check() time: "relaxed" is
+    # --relax, "rebaseline-files" the bounded --rebaseline-files bless.
+    WAIVER_VERDICTS: frozenset[str] = frozenset({"relaxed", "rebaseline-files"})
+
     def __new__(cls, root: Path) -> Self:
         self = super().__new__(cls)
         self._path = root / cls.FILENAME
@@ -91,7 +95,7 @@ class CouplingAudit:
             entry = self._parse(line)
             if self._canonical(entry) in base_keys:
                 continue
-            if entry.get("verdict") != "relaxed":
+            if entry.get("verdict") not in self.WAIVER_VERDICTS:
                 continue
             deltas = entry.get("deltas")
             if not isinstance(deltas, dict):

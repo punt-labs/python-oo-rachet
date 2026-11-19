@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Self
 
 from .audit import CouplingAuditError
-from .baseline import CouplingBaselineError
+from .baseline import CouplingBaseline, CouplingBaselineError
+from .bless import CouplingBless
+from .config import CouplingConfig, CouplingConfigError
 from .gitio import GitError, GitRepo
 from .outcome import Outcome
 from .ratchet import CouplingRatchet
@@ -29,7 +31,9 @@ class Options:
     json: bool
     threshold: bool
     relax: str | None
+    rebaseline_files: tuple[str, ...] | None
     justify: str
+    reason: str
     base_ref: str | None
     require_base: bool
     allow_ci_write: bool
@@ -49,13 +53,22 @@ class Options:
             json=bool(ns.json),
             threshold=bool(ns.threshold),
             relax=ns.relax,
+            rebaseline_files=cls._split_paths(ns.rebaseline_files),
             justify=ns.justify or "",
+            reason=ns.reason or "",
             base_ref=ns.base_ref,
             require_base=bool(ns.require_base),
             allow_ci_write=bool(ns.allow_ci_write),
             source=ns.source,
             tripwire=bool(ns.tripwire),
         )
+
+    @staticmethod
+    def _split_paths(raw: str | None) -> tuple[str, ...] | None:
+        """Split ``--rebaseline-files``' comma-joined value, or ``None`` if absent."""
+        if raw is None:
+            return None
+        return tuple(p.strip() for p in raw.split(",") if p.strip())
 
     @staticmethod
     def _build_parser() -> argparse.ArgumentParser:
@@ -72,9 +85,17 @@ class Options:
         action.add_argument("--rebaseline", action="store_true", help="reset baseline")
         action.add_argument("--threshold", action="store_true", help="per-file table")
         action.add_argument("--relax", metavar="FILE", help="relax one file's baseline")
+        action.add_argument(
+            "--rebaseline-files",
+            metavar="PATH[,PATH...]",
+            help="bounded scoped bless of named files, --reason required",
+        )
         action.add_argument("--log", action="store_true", help="show audit history")
         action.add_argument("--json", action="store_true", help="emit JSON scores")
         parser.add_argument("--justify", default="", help="justification for --relax")
+        parser.add_argument(
+            "--reason", default="", help="justification for --rebaseline-files"
+        )
         parser.add_argument("--base-ref", metavar="REF", help="comparison base commit")
         parser.add_argument(
             "--require-base", action="store_true", help="fail if base unresolvable"
@@ -108,24 +129,39 @@ class Cli:
 
     def run(self) -> int:
         """Execute the requested operation and return its exit code."""
+        guard = self._rebaseline_files_guard()
+        if guard is not None:
+            return self._emit(guard)
         if not self._opts.src.exists():
             return self._emit(Outcome.failed(f"Not found: {self._opts.src}"))
         try:
             # Score inside the try: a read/decode failure (OSError,
             # UnicodeDecodeError) or a corrupt in-tree baseline must surface as a
             # clean non-zero, not a traceback.
-            scorer = CouplingScorer(self._opts.src, self._root)
+            config = CouplingConfig.load(self._root)
+            scorer = CouplingScorer(self._opts.src, self._root, config)
             action = self._run_action(scorer)
             outcome = action if action is not None else self._run_view(scorer)
         except (
             GitError,
             CouplingBaselineError,
             CouplingAuditError,
+            CouplingConfigError,
             OSError,
             UnicodeDecodeError,
         ) as exc:
             outcome = Outcome.failed(f"FAIL: {exc}")
         return self._emit(outcome)
+
+    def _rebaseline_files_guard(self) -> Outcome | None:
+        """Reject an empty path list or blank ``--reason`` before scoring."""
+        if self._opts.rebaseline_files is None:
+            return None
+        if not self._opts.rebaseline_files:
+            return Outcome.failed("FAIL: --rebaseline-files requires at least one path")
+        if not self._opts.reason.strip():
+            return Outcome.failed("FAIL: --rebaseline-files requires --reason <text>")
+        return None
 
     @staticmethod
     def _emit(outcome: Outcome) -> int:
@@ -155,6 +191,14 @@ class Cli:
                 justify=opts.justify,
                 allow_ci_write=opts.allow_ci_write,
                 source=opts.source,
+            )
+        if opts.rebaseline_files is not None:
+            return CouplingBless(self._root, self._git, scorer.config.caps).apply(
+                CouplingBaseline.metrics_by_file(scorer.results),
+                list(opts.rebaseline_files),
+                reason=opts.reason,
+                source=opts.source,
+                allow_ci_write=opts.allow_ci_write,
             )
         if opts.update:
             return writer.update(

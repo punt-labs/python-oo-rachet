@@ -60,13 +60,14 @@ class CouplingReport:
     def render_per_file(self) -> list[str]:
         """Return the per-file breakdown, honoring the ``__main__`` relaxation."""
         lines = ["\n--- Per-file breakdown ---"]
+        caps = self._scorer.config.caps
         for r in self._scorer.results:
             fpath = str(r.get("file", "?"))
             lines.append(f"\n  {fpath}")
             for k, v in r.items():
                 if k == "file" or k not in CouplingThresholds.TABLE:
                     continue
-                passed = CouplingThresholds.meets(k, float(v), fpath)
+                passed = CouplingThresholds.meets(k, float(v), fpath, caps)
                 grade = "PASS" if passed else "FAIL"
                 lines.append(f"    {k:<26} {v:>8} {grade}")
         return lines

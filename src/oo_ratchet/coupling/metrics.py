@@ -22,12 +22,20 @@ class ModuleCouplingMetrics:
     _path: str
     _tree: ast.Module
     _resolver: ImportResolver
+    _stateless_values: str
 
-    def __new__(cls, path: str, tree: ast.Module, resolver: ImportResolver) -> Self:
+    def __new__(
+        cls,
+        path: str,
+        tree: ast.Module,
+        resolver: ImportResolver,
+        stateless_values: str = "dataclass",
+    ) -> Self:
         self = super().__new__(cls)
         self._path = path
         self._tree = tree
         self._resolver = resolver
+        self._stateless_values = stateless_values
         return self
 
     def compute(self) -> dict[str, float | int | str]:
@@ -154,12 +162,17 @@ class ModuleCouplingMetrics:
                 disjoint += 1
         return round(disjoint / total, 3) if total else 0.0
 
-    @classmethod
-    def _is_exempt(cls, node: ast.ClassDef) -> bool:
-        """Return True for data shapes and stateless values, which LCOM cannot see."""
-        if cls._is_type_definition(node):
+    def _is_exempt(self, node: ast.ClassDef) -> bool:
+        """Return True for data shapes and stateless values, which LCOM cannot see.
+
+        ``stateless_values == "any"`` exempts every class that stores no
+        private ``self._*`` state; the default exempts only value shapes.
+        """
+        if self._is_type_definition(node):
             return True
-        return cls._declares_value_shape(node) and cls._is_stateless_value(node)
+        if self._stateless_values == "any":
+            return self._stores_no_private_state(node)
+        return self._declares_value_shape(node) and self._is_stateless_value(node)
 
     @staticmethod
     def _declares_value_shape(node: ast.ClassDef) -> bool:
@@ -211,6 +224,51 @@ class ModuleCouplingMetrics:
             ):
                 return False
         return True
+
+    @classmethod
+    def _stores_no_private_state(cls, node: ast.ClassDef) -> bool:
+        """Return True when the class never writes a private ``self._*`` attr.
+
+        A write through ``object``/``super()``/``type(self)`` ``.__setattr__``
+        (the frozen-class idiom) counts as a store too (lux #498).
+        """
+        return not any(cls._writes_private_state(sub) for sub in ast.walk(node))
+
+    @classmethod
+    def _writes_private_state(cls, sub: ast.AST) -> bool:
+        if isinstance(sub, ast.Call):
+            return cls._is_private_setattr(sub)
+        return (
+            isinstance(sub, ast.Attribute)
+            and isinstance(sub.ctx, ast.Store)
+            and isinstance(sub.value, ast.Name)
+            and sub.value.id == "self"
+            and sub.attr.startswith("_")
+        )
+
+    @classmethod
+    def _is_private_setattr(cls, call: ast.Call) -> bool:
+        """Return True for ``object.__setattr__(self, "_x", ...)`` and kin."""
+        func = call.func
+        if not isinstance(func, ast.Attribute) or func.attr != "__setattr__":
+            return False
+        if len(call.args) < 2 or not cls._is_setattr_receiver(func.value):
+            return False
+        target, name = call.args[0], call.args[1]
+        if not (isinstance(target, ast.Name) and target.id == "self"):
+            return False
+        return isinstance(name, ast.Constant) and str(name.value).startswith("_")
+
+    @staticmethod
+    def _is_setattr_receiver(receiver: ast.expr) -> bool:
+        """Return True for ``object``, ``super()``, or ``type(...)``."""
+        if isinstance(receiver, ast.Name):
+            return receiver.id == "object"
+        return (
+            isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id in ("super", "type")
+        )
 
     @staticmethod
     def _is_type_definition(node: ast.ClassDef) -> bool:

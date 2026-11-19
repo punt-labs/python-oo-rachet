@@ -1,0 +1,105 @@
+"""Per-repository coupling settings read from ``[tool.oo-ratchet.coupling]``.
+
+Two settings let an adopting repository say what the strict defaults cannot:
+
+``caps`` maps an exact repository-relative path to per-metric absolute caps,
+for a wiring hub whose job is to import many modules::
+
+    [tool.oo-ratchet.coupling.caps]
+    "src/pkg/facade.py" = { efferent_coupling = 20 }
+
+``stateless-values`` picks which classes LCOM skips as stateless values:
+``"dataclass"`` (default) skips only a ``@dataclass`` or ``__slots__ = ()``
+marker that stores no instance state; ``"any"`` skips every class that stores
+no private ``self._*`` state, whatever its shape.
+"""
+
+from __future__ import annotations
+
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Self
+
+from .thresholds import CouplingThresholds
+
+STATELESS_MODES = frozenset({"dataclass", "any"})
+
+
+class CouplingConfigError(Exception):
+    """``[tool.oo-ratchet.coupling]`` is unreadable or malformed."""
+
+
+@dataclass(frozen=True, slots=True)
+class CouplingConfig:
+    """Validated coupling settings for one repository."""
+
+    caps: dict[str, dict[str, float]] = field(default_factory=dict)
+    stateless_values: str = "dataclass"
+
+    @classmethod
+    def load(cls, root: Path) -> Self:
+        """Read ``root/pyproject.toml``; absent file or table means defaults."""
+        path = root / "pyproject.toml"
+        if not path.is_file():
+            return cls()
+        try:
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+            msg = f"cannot read {path}: {exc}"
+            raise CouplingConfigError(msg) from exc
+        table = data.get("tool", {}).get("oo-ratchet", {}).get("coupling", {})
+        if not isinstance(table, dict):
+            msg = "[tool.oo-ratchet.coupling] must be a table"
+            raise CouplingConfigError(msg)
+        return cls.from_table(table)
+
+    @classmethod
+    def from_table(cls, table: dict[str, object]) -> Self:
+        """Validate a parsed ``[tool.oo-ratchet.coupling]`` table."""
+        unknown = set(table) - {"caps", "stateless-values"}
+        if unknown:
+            msg = f"unknown [tool.oo-ratchet.coupling] keys: {sorted(unknown)}"
+            raise CouplingConfigError(msg)
+        mode = table.get("stateless-values", "dataclass")
+        if mode not in STATELESS_MODES:
+            msg = f"stateless-values must be one of {sorted(STATELESS_MODES)}"
+            raise CouplingConfigError(msg)
+        return cls(caps=cls._parse_caps(table.get("caps", {})), stateless_values=mode)
+
+    @staticmethod
+    def _parse_caps(raw: object) -> dict[str, dict[str, float]]:
+        if not isinstance(raw, dict):
+            msg = "[tool.oo-ratchet.coupling.caps] must be a table"
+            raise CouplingConfigError(msg)
+        caps: dict[str, dict[str, float]] = {}
+        for path, metrics in raw.items():
+            if not isinstance(metrics, dict) or not metrics:
+                msg = f"caps for {path!r} must be a non-empty table of metric caps"
+                raise CouplingConfigError(msg)
+            caps[CouplingConfig._normalize(path)] = {
+                metric: CouplingConfig._cap_value(path, metric, value)
+                for metric, value in metrics.items()
+            }
+        return caps
+
+    @staticmethod
+    def _cap_value(path: str, metric: str, value: object) -> float:
+        if metric not in CouplingThresholds.TABLE:
+            msg = f"caps for {path!r}: unknown metric {metric!r}"
+            raise CouplingConfigError(msg)
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            msg = f"caps for {path!r}: {metric} must be a number"
+            raise CouplingConfigError(msg)
+        return float(value)
+
+    @staticmethod
+    def _normalize(path: str) -> str:
+        """Return ``path`` in the scorer's repo-relative POSIX key form."""
+        norm = path.replace("\\", "/")
+        while norm.startswith("./"):
+            norm = norm[2:]
+        if not norm or norm.startswith("/"):
+            msg = f"caps path {path!r} must be repository-relative"
+            raise CouplingConfigError(msg)
+        return norm
