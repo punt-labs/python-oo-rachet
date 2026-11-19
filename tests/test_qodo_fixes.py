@@ -15,9 +15,11 @@ import oo_ratchet.coupling
 import oo_ratchet.oo
 import oo_ratchet.suppression
 from oo_ratchet.coupling.audit import CouplingAudit, CouplingAuditError
+from oo_ratchet.coupling.gitio import GitError as CouplingGitError
 from oo_ratchet.coupling.gitio import GitRepo as CouplingGitRepo
 from oo_ratchet.coupling.imports import ImportResolver
 from oo_ratchet.oo.audit import AuditError, AuditLog
+from oo_ratchet.oo.gitio import GitError as OoGitError
 from oo_ratchet.oo.gitio import GitRepo
 from oo_ratchet.oo.gitio import GitRepo as OoGitRepo
 from oo_ratchet.oo.provenance import ExtractionDetector
@@ -208,12 +210,18 @@ def test_unscorable_single_file_fails_instead_of_viewing_clean(
     )
 
 
-@pytest.mark.parametrize("repo_cls", [OoGitRepo, CouplingGitRepo])
-def test_non_utf8_git_output_is_unresolvable_not_a_crash(
-    repo_cls: type[OoGitRepo] | type[CouplingGitRepo], tmp_path: Path
+@pytest.mark.parametrize(
+    ("repo_cls", "error"),
+    [(OoGitRepo, OoGitError), (CouplingGitRepo, CouplingGitError)],
+)
+def test_non_utf8_git_output_raises_instead_of_reading_as_absent(
+    repo_cls: type[OoGitRepo] | type[CouplingGitRepo],
+    error: type[Exception],
+    tmp_path: Path,
 ) -> None:
     emit = "import sys; sys.stdout.buffer.write(b'src/\\xff.py')"
-    assert repo_cls._run([sys.executable, "-c", emit], cwd=tmp_path) is None
+    with pytest.raises(error, match="not valid UTF-8"):
+        repo_cls._run([sys.executable, "-c", emit], cwd=tmp_path)
 
 
 def test_unscorable_single_file_still_shows_log_and_json(

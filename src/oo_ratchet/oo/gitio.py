@@ -58,8 +58,11 @@ class GitRepo:
                 timeout=_TIMEOUT,
                 cwd=cwd,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired, UnicodeDecodeError):
-            return None  # non-UTF-8 output (a path name): unresolvable, fail closed
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        except UnicodeDecodeError as exc:
+            # Never "absent": a None root would bootstrap-pass the gate.
+            raise GitError(f"git output is not valid UTF-8: {exc}") from exc
         if result.returncode != 0:
             return None
         return result.stdout

@@ -181,4 +181,8 @@ class Cli:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the coupling ratchet CLI, returning an exit code."""
-    return Cli(Options.parse(argv)).run()
+    try:
+        return Cli(Options.parse(argv)).run()
+    except GitError as exc:  # raised while locating the repository root
+        print(f"FAIL: {exc}")
+        return 1
