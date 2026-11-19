@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-19
+
+### Fixed
+
+- Scoped OO and coupling `--update` now backfill and report missing baseline rows throughout the requested source tree, including committed files outside the diff and untracked files. Existing untouched rows and rename regression checks are preserved.
+
 ## [0.3.0] - 2026-11-18
 
 ### Changed

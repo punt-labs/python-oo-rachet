@@ -1,6 +1,6 @@
 [project]
 name = "punt-oo-ratchet"
-version = "0.3.0"
+version = "0.3.1"
 description = "Must-improve OO quality ratchet for Python repos: OO metrics, coupling/cohesion, and lint-suppression count gates."
 readme = "README.md"
 license = "MIT"
@@ -104,4 +104,3 @@ ignore = [
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
-

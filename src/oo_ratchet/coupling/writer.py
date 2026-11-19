@@ -48,7 +48,7 @@ class CouplingWriter:
         allow_ci_write: bool,
         source: str | None,
     ) -> Outcome:
-        """Update baseline entries for PR-touched files, never loosening.
+        """Update PR-touched files and backfill missing rows, never loosening.
 
         Mirrors ``check``'s fail-closed contract: on an unresolvable base a
         scoped update refuses rather than silently sweeping the whole tree. A
@@ -72,8 +72,20 @@ class CouplingWriter:
             for p in diff.python_files()
             if p in current or p in scorer.parse_errors or not (self._root / p).exists()
         )
-        return self._apply(
-            current, touched, diff.renames, touched & scorer.parse_errors, source
+        missing = frozenset(current.keys() - self._baseline.entries.keys())
+        outcome = self._apply(
+            current,
+            touched | missing,
+            diff.renames,
+            touched & scorer.parse_errors,
+            source,
+        )
+        return Outcome(
+            outcome.exit_code,
+            outcome.lines
+            + tuple(
+                f"  backfilled: {p}" for p in sorted(missing - diff.renames.keys())
+            ),
         )
 
     def rebaseline(
