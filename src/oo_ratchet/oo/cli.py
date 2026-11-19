@@ -75,7 +75,7 @@ class Options:
     @staticmethod
     def _build_parser() -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
-            prog="oo_score", description="OO quality scorer and baseline ratchet"
+            prog="oo-ratchet oo", description="OO quality scorer and baseline ratchet"
         )
         parser.add_argument("src", help="file or directory to score")
         # Exactly one action selects the operation; passing two is an argparse

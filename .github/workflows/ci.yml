@@ -8,9 +8,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the ratchets read the baseline at the merge base
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
       - run: uv sync
-      - run: make check
+      - run: make lint type test
+      - name: Ratchets (PR, merge-base compare)
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "${BASE_REF}"
+          BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          OO_ARGS="--base-ref ${BASE} --require-base"
+          case "${HEAD_REF}" in
+            release/*|post-release/*) OO_ARGS="${OO_ARGS} --allow-no-improvement" ;;
+          esac
+          make check-oo OO_BASE="${OO_ARGS}"
+          make check-coupling COUPLING_BASE="--base-ref ${BASE} --require-base"
+          make check-suppressions SUPPRESSION_BASE="--base-ref ${BASE} --require-base"
+      - name: Ratchets (main, post-merge tripwire)
+        if: github.event_name == 'push'
+        run: |
+          make check-oo OO_BASE="--base-ref HEAD~1 --require-base --allow-no-improvement"
+          make check-coupling COUPLING_BASE="--base-ref HEAD~1 --require-base --tripwire"
+          make check-suppressions SUPPRESSION_BASE="--base-ref HEAD~1 --require-base"
       - run: uv build

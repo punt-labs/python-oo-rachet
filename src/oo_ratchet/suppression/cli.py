@@ -51,7 +51,7 @@ class Options:
     @staticmethod
     def _build_parser() -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
-            prog="suppression_ratchet",
+            prog="oo-ratchet suppressions",
             description="count lint/type suppressions and enforce a ratchet",
         )
         parser.add_argument("src", help="file or directory to scan")

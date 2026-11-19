@@ -182,6 +182,10 @@ class ModuleCouplingMetrics:
         )
 
     @staticmethod
+    def _is_slots(target: ast.expr) -> bool:
+        return isinstance(target, ast.Name) and target.id == "__slots__"
+
+    @staticmethod
     def _is_stateless_value(node: ast.ClassDef) -> bool:
         """Return True when the class never stores instance state in its own AST.
 
@@ -221,7 +225,3 @@ class ModuleCouplingMetrics:
             ):
                 return True
         return False
-
-
-def _is_slots(target: ast.expr) -> bool:
-    return isinstance(target, ast.Name) and target.id == "__slots__"

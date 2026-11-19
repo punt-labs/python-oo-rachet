@@ -1,4 +1,9 @@
-.PHONY: help lint type test check build clean
+.PHONY: help lint type test check build clean check-oo update-oo check-coupling update-coupling check-suppressions update-suppressions
+
+SRC := src/oo_ratchet/
+OO_BASE ?=
+COUPLING_BASE ?=
+SUPPRESSION_BASE ?=
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -14,7 +19,25 @@ type: ## mypy (strict) + pyright on tests
 test: ## full suite, including the real-git slow tier
 	uv run pytest -m ""
 
-check: lint type test ## all gates
+check: lint type test check-oo check-coupling check-suppressions ## all gates
+
+check-oo: ## OO must-improve ratchet (dogfooded on this package)
+	uv run oo-ratchet oo $(SRC) --check $(OO_BASE)
+
+update-oo:
+	uv run oo-ratchet oo $(SRC) --update $(OO_BASE)
+
+check-coupling: ## coupling/cohesion regression gate
+	uv run oo-ratchet coupling $(SRC) --check $(COUPLING_BASE)
+
+update-coupling:
+	uv run oo-ratchet coupling $(SRC) --update $(COUPLING_BASE)
+
+check-suppressions: ## suppression-count regression gate
+	uv run oo-ratchet suppressions $(SRC) --check $(SUPPRESSION_BASE)
+
+update-suppressions:
+	uv run oo-ratchet suppressions $(SRC) --update
 
 build: ## wheel + sdist
 	uv build

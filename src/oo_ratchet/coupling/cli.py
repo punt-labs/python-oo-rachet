@@ -60,7 +60,7 @@ class Options:
     @staticmethod
     def _build_parser() -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
-            prog="oo_coupling",
+            prog="oo-ratchet coupling",
             description="module coupling/cohesion scorer and regression ratchet",
         )
         parser.add_argument("src", help="file or directory to score")
