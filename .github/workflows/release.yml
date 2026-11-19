@@ -86,6 +86,23 @@ jobs:
           exit 1
       - name: Verify CLI
         run: oo-ratchet --help
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: Verify TestPyPI serves this run's build
+        # skip-existing keeps reruns working; this keeps them honest.
+        run: |
+          python - "${GITHUB_REF_NAME#v}" <<'EOF'
+          import hashlib, json, pathlib, sys, urllib.request
+          url = f"https://test.pypi.org/pypi/punt-oo-ratchet/{sys.argv[1]}/json"
+          with urllib.request.urlopen(url) as resp:
+              served = {u["filename"]: u["digests"]["sha256"] for u in json.load(resp)["urls"]}
+          for dist in pathlib.Path("dist").iterdir():
+              if served.get(dist.name) != hashlib.sha256(dist.read_bytes()).hexdigest():
+                  sys.exit(f"::error::TestPyPI {dist.name} is not this run's build; bump the version")
+          print("TestPyPI artifacts match this run's build")
+          EOF
 
   pypi:
     needs: test-install
