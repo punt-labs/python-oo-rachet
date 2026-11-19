@@ -63,6 +63,7 @@ class AuditLog:
         commit: str | None,
         reason: str | None = None,
         removed: Iterable[str] = (),
+        improved: dict[str, dict[str, list[float]]] | None = None,
     ) -> None:
         """Append one verdict entry, recording its source (PR/bead ref).
 
@@ -89,6 +90,8 @@ class AuditLog:
             entry["reason"] = reason
         entry["deltas"] = deltas
         entry["removed"] = sorted(removed)
+        if improved:
+            entry["improved"] = improved
         with self._path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 

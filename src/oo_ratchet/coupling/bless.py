@@ -203,23 +203,25 @@ class CouplingBless:
     ) -> None:
         new_baseline = dict(self._baseline.entries)
         waived: dict[str, dict[str, list[float]]] = {}
-        improved = 0
+        gains: dict[str, dict[str, list[float]]] = {}
         for path in accepted:
             entry = current[path]
             base = self._base_for(path) or {}
             regressed = self._regressed(entry, base)
             if regressed:
                 waived[path] = regressed
-            elif self._improved(entry, base):
-                improved += 1
+            better = self._improved(entry, base)
+            if better:
+                gains[path] = better
             self._record(new_baseline, path, entry)
         self._baseline.save(new_baseline)
         self._audit.append(
             files_scored=len(accepted),
-            files_improved=improved,
+            files_improved=len(gains.keys() - waived.keys()),
             files_regressed=len(waived),
             verdict="rebaseline-files",
             deltas=waived,
+            improved=gains,
             commit=self._git.short_head(),
             source=source,
             reason=reason,
@@ -250,9 +252,12 @@ class CouplingBless:
         }
 
     @staticmethod
-    def _improved(entry: dict[str, float], base: dict[str, float]) -> bool:
-        return any(
-            CouplingThresholds.strictly_better(m, entry[m], base[m])
+    def _improved(
+        entry: dict[str, float], base: dict[str, float]
+    ) -> dict[str, list[float]]:
+        """Return ``[old, new]`` for each metric better than ``base``, audit-only."""
+        return {
+            m: [base[m], entry[m]]
             for m in entry
-            if m in base
-        )
+            if m in base and CouplingThresholds.strictly_better(m, entry[m], base[m])
+        }

@@ -132,6 +132,7 @@ class FileBless:
     ) -> None:
         new_baseline = dict(self._baseline.entries)
         deltas: dict[str, dict[str, list[float]]] = {}
+        gains: dict[str, dict[str, list[float]]] = {}
         regressed_files: set[str] = set()
         improved_files: set[str] = set()
         for path in accepted:
@@ -150,6 +151,13 @@ class FileBless:
                 waived = self._waived_deltas(entry, base_entry, file_deltas)
                 if waived:
                     deltas[path] = waived
+                better = {
+                    m: d
+                    for m, d in file_deltas.items()
+                    if Thresholds.strictly_better(m, entry[m], base_entry[m])
+                }
+                if better:
+                    gains[path] = better
             new_baseline[path] = entry
         # A file with any regressed metric is counted as regressed, not
         # improved, even if another of its metrics also improved -- "improved"
@@ -162,6 +170,7 @@ class FileBless:
             files_regressed=len(regressed_files),
             verdict="rebaseline-files",
             deltas=deltas,
+            improved=gains,
             source=source,
             commit=self._git.short_head(),
             reason=reason,
