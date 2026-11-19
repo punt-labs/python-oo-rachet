@@ -63,6 +63,7 @@ class TestConfigLoad:
             {"caps": {"a.py": {}}},
             {"caps": {"/abs/a.py": {"efferent_coupling": 20}}},
             {"caps": {"../a.py": {"efferent_coupling": 20}}},
+            {"caps": {"C:\\repo\\a.py": {"efferent_coupling": 20}}},
             {"caps": {"pkg/../../a.py": {"efferent_coupling": 20}}},
             {"caps": ["a.py"]},
             {"stateless-values": "all"},
