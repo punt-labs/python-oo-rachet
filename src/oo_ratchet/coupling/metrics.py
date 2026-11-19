@@ -8,7 +8,7 @@ from typing import Self
 
 from .imports import ImportResolver
 
-_TYPE_BASES = frozenset({"Protocol", "TypedDict"})
+_TYPE_BASES = frozenset({"Protocol", "TypedDict", "BaseModel"})
 
 
 class ModuleCouplingMetrics:
@@ -88,7 +88,7 @@ class ModuleCouplingMetrics:
     def _lcom_values(self) -> list[float]:
         values: list[float] = []
         for node in ast.iter_child_nodes(self._tree):
-            if not isinstance(node, ast.ClassDef) or self._is_type_definition(node):
+            if not isinstance(node, ast.ClassDef) or self._is_exempt(node):
                 continue
             lcom = self._class_lcom(node)
             if lcom is not None:
@@ -154,9 +154,63 @@ class ModuleCouplingMetrics:
                 disjoint += 1
         return round(disjoint / total, 3) if total else 0.0
 
+    @classmethod
+    def _is_exempt(cls, node: ast.ClassDef) -> bool:
+        """Return True for data shapes and stateless values, which LCOM cannot see."""
+        if cls._is_type_definition(node):
+            return True
+        return cls._declares_value_shape(node) and cls._is_stateless_value(node)
+
+    @staticmethod
+    def _declares_value_shape(node: ast.ClassDef) -> bool:
+        """Return True for a ``@dataclass`` or an empty-``__slots__`` marker class."""
+        for deco in node.decorator_list:
+            target = deco.func if isinstance(deco, ast.Call) else deco
+            name = target.attr if isinstance(target, ast.Attribute) else None
+            if isinstance(target, ast.Name):
+                name = target.id
+            if name == "dataclass":
+                return True
+        return any(
+            isinstance(item, ast.Assign)
+            and any(
+                isinstance(t, ast.Name) and t.id == "__slots__" for t in item.targets
+            )
+            and isinstance(item.value, ast.Tuple)
+            and not item.value.elts
+            for item in node.body
+        )
+
+    @staticmethod
+    def _is_stateless_value(node: ast.ClassDef) -> bool:
+        """Return True when the class never stores instance state in its own AST.
+
+        Applied only to a marker (``__slots__ = ()``) or a ``@dataclass``, whose
+        fields the generated ``__init__`` sets; either reads as LCOM 1.0 otherwise. A
+        ``object.__setattr__(self, ...)`` call counts as a store (lux #498).
+        """
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.Attribute)
+                and isinstance(sub.value, ast.Name)
+                and sub.value.id == "self"
+                and isinstance(sub.ctx, ast.Store)
+            ):
+                return False
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr == "__setattr__"
+                and sub.args
+                and isinstance(sub.args[0], ast.Name)
+                and sub.args[0].id == "self"
+            ):
+                return False
+        return True
+
     @staticmethod
     def _is_type_definition(node: ast.ClassDef) -> bool:
-        """Return True for Protocol/TypedDict classes (excluded from LCOM)."""
+        """Return True for Protocol/TypedDict/BaseModel classes (excluded from LCOM)."""
         for base in node.bases:
             if isinstance(base, ast.Name) and base.id in _TYPE_BASES:
                 return True
@@ -167,3 +221,7 @@ class ModuleCouplingMetrics:
             ):
                 return True
         return False
+
+
+def _is_slots(target: ast.expr) -> bool:
+    return isinstance(target, ast.Name) and target.id == "__slots__"

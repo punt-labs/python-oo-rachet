@@ -8,8 +8,6 @@ from typing import Self
 from .imports import ImportResolver
 from .layout import PackageLayout
 
-_WHITE, _GRAY, _BLACK = 0, 1, 2
-
 
 class ImportGraph:
     """A directed graph of internal package imports, keyed by module.
@@ -54,30 +52,68 @@ class ImportGraph:
         return self._edges.get(node, set())
 
     def cycle_members(self) -> set[str]:
-        """Return every node that participates in any import cycle (DFS)."""
-        color: dict[str, int] = dict.fromkeys(self._edges, _WHITE)
+        """Return every node on any import cycle: its SCC has 2+ members or a self-loop.
+
+        Strongly connected components do not depend on traversal order, so no
+        cycle member is missed when the walk reaches it through an
+        already-finished node (the DFS back-edge bug fixed in lux PR #466).
+        """
         in_cycle: set[str] = set()
-        path: list[str] = []
-        for node in self._edges:
-            if color[node] == _WHITE:
-                self._visit(node, color, path, in_cycle)
+        for component in self._components():
+            node = next(iter(component))
+            if len(component) > 1 or node in self._edges.get(node, set()):
+                in_cycle.update(component)
         return in_cycle
 
-    def _visit(
+    def _components(self) -> list[set[str]]:
+        """Return the strongly connected components (iterative Tarjan, sorted walk)."""
+        index_of: dict[str, int] = {}
+        lowlink: dict[str, int] = {}
+        stack: list[str] = []
+        on_stack: set[str] = set()
+        sccs: list[set[str]] = []
+        for root in sorted(self._edges):
+            if root in index_of:
+                continue
+            work = [(root, self._enter(root, index_of, lowlink, stack, on_stack), 0)]
+            while work:
+                node, neighbors, i = work[-1]
+                if i < len(neighbors):
+                    work[-1] = (node, neighbors, i + 1)
+                    nxt = neighbors[i]
+                    if nxt not in index_of:
+                        entered = self._enter(nxt, index_of, lowlink, stack, on_stack)
+                        work.append((nxt, entered, 0))
+                    elif nxt in on_stack:
+                        lowlink[node] = min(lowlink[node], index_of[nxt])
+                    continue
+                work.pop()
+                if work:
+                    parent = work[-1][0]
+                    lowlink[parent] = min(lowlink[parent], lowlink[node])
+                if lowlink[node] == index_of[node]:
+                    sccs.append(self._pop_component(node, stack, on_stack))
+        return sccs
+
+    def _enter(
         self,
         node: str,
-        color: dict[str, int],
-        path: list[str],
-        in_cycle: set[str],
-    ) -> None:
-        color[node] = _GRAY
-        path.append(node)
-        for neighbor in self._edges.get(node, set()):
-            if neighbor not in color:
-                continue
-            if color[neighbor] == _GRAY:
-                in_cycle.update(path[path.index(neighbor) :])
-            elif color[neighbor] == _WHITE:
-                self._visit(neighbor, color, path, in_cycle)
-        path.pop()
-        color[node] = _BLACK
+        index_of: dict[str, int],
+        lowlink: dict[str, int],
+        stack: list[str],
+        on_stack: set[str],
+    ) -> list[str]:
+        index_of[node] = lowlink[node] = len(index_of)
+        stack.append(node)
+        on_stack.add(node)
+        return sorted(n for n in self._edges.get(node, set()) if n in self._edges)
+
+    @staticmethod
+    def _pop_component(node: str, stack: list[str], on_stack: set[str]) -> set[str]:
+        component: set[str] = set()
+        while True:
+            member = stack.pop()
+            on_stack.discard(member)
+            component.add(member)
+            if member == node:
+                return component
