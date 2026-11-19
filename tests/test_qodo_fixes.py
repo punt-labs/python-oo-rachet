@@ -225,5 +225,5 @@ def test_unscorable_single_file_still_shows_log_and_json(
     git_sandbox.write("src/pkg/thing.py", "def broken(:\n")
     assert oo_ratchet.oo.main(["src/pkg/thing.py", "--log"]) == 0
     capsys.readouterr()
-    oo_ratchet.oo.main(["src/pkg/thing.py", "--json"])
+    assert oo_ratchet.oo.main(["src/pkg/thing.py", "--json"]) == 1
     assert '"error"' in capsys.readouterr().out

@@ -249,7 +249,7 @@ class Cli:
         return None
 
     def _run_view(self, scorer: Scorer) -> Outcome:
-        code = 1 if scorer.fail_count > 0 else 0
+        code = 1 if scorer.fail_count > 0 or scorer.parse_errors else 0
         if self._opts.json:
             return Outcome(code, (scorer.to_json(),))
         lines = list(scorer.render_table())
