@@ -69,7 +69,7 @@ class CouplingWriter:
         touched = frozenset(
             p
             for p in diff.python_files()
-            if p in current or not (self._root / p).exists()
+            if p in current or p in scorer.parse_errors or not (self._root / p).exists()
         )
         return self._apply(
             current, touched, diff.renames, touched & scorer.parse_errors, source
