@@ -310,6 +310,36 @@ class TestCouplingBless:
         )
         assert outcome.exit_code == 1
 
+    def test_new_over_cap_file_refused_despite_worktree_row(
+        self, fx: GitFixture
+    ) -> None:
+        base = self._setup(fx)
+        fx.write("pkg/fresh.py", fx.root.joinpath("pkg/hub.py").read_text())
+        scorer = fx.scorer()
+        current = CouplingBaseline.metrics_by_file(scorer.results)
+        fx.write_baseline({**CouplingBaseline(fx.root).entries, **current})
+        outcome = CouplingBless(fx.root, GitRepo(fx.root)).apply(
+            current,
+            ["pkg/fresh.py"],
+            reason="r",
+            source=None,
+            allow_ci_write=True,
+            base_ref=base,
+        )
+        assert outcome.exit_code == 1
+
+    def test_require_base_without_base_fails(self, fx: GitFixture) -> None:
+        self._setup(fx)
+        outcome = CouplingBless(fx.root, GitRepo(fx.root), _HUB_CAPS).apply(
+            {},
+            ["pkg/hub.py"],
+            reason="r",
+            source=None,
+            allow_ci_write=True,
+            require_base=True,
+        )
+        assert outcome.exit_code == 1
+
     def test_unknown_path_refused(self, fx: GitFixture) -> None:
         self._setup(fx)
         scorer = fx.scorer()

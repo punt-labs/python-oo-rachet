@@ -31,7 +31,7 @@ class CouplingBless:
     _git: GitRepo
     _caps: dict[str, dict[str, float]]
     _renames: dict[str, str]
-    _reference: dict[str, dict[str, float]]
+    _reference: dict[str, dict[str, float]] | None
 
     def __new__(
         cls,
@@ -46,7 +46,7 @@ class CouplingBless:
         self._git = git
         self._caps = caps or {}
         self._renames = {}
-        self._reference = {}
+        self._reference = None
         return self
 
     def apply(
@@ -58,12 +58,13 @@ class CouplingBless:
         source: str | None,
         allow_ci_write: bool = False,
         base_ref: str | None = None,
+        require_base: bool = False,
     ) -> Outcome:
         """Bless every named path that clears the gate; exit 1 if any refused."""
         blocked = self._precondition(reason, allow_ci_write=allow_ci_write)
         if blocked is not None:
             return blocked
-        loaded = self._load_base(base_ref)
+        loaded = self._load_base(base_ref, require_base=require_base)
         if loaded is not None:
             return loaded
         accepted, refused = self._partition(current, paths)
@@ -82,16 +83,21 @@ class CouplingBless:
             return Outcome.failed("FAIL: --rebaseline-files requires --reason <text>")
         return None
 
-    def _load_base(self, base_ref: str | None) -> Outcome | None:
+    def _load_base(self, base_ref: str | None, *, require_base: bool) -> Outcome | None:
         """Load renames and the base-committed baseline the next check uses.
 
-        An explicit ``--base-ref`` that does not resolve fails; with no base at
-        all (local first adoption) the worktree baseline is the reference.
+        An explicit ``--base-ref`` that does not resolve, or no base under
+        ``--require-base``, fails; with no base at all (local first adoption)
+        the worktree baseline is the reference.
         """
         base = self._git.resolve_base(base_ref)
         if base is None:
             if base_ref is not None:
                 return Outcome.failed(f"FAIL: cannot resolve --base-ref {base_ref}")
+            if require_base:
+                return Outcome.failed(
+                    "FAIL: base ref unresolvable and --require-base is set"
+                )
             return None
         self._renames = self._git.diff(base).renames
         self._reference = self._git.show_baseline(base) or {}
@@ -149,9 +155,13 @@ class CouplingBless:
         return accepted, refused
 
     def _base_for(self, path: str) -> dict[str, float] | None:
-        """Return ``path``'s row at the base (following a rename), else worktree."""
-        entry = self._reference.get(self._renames.get(path, path))
-        return entry if entry is not None else self._baseline.get(path)
+        """Return ``path``'s row at the base (following a rename).
+
+        Only with no resolvable base does the worktree baseline stand in.
+        """
+        if self._reference is None:
+            return self._baseline.get(path)
+        return self._reference.get(self._renames.get(path, path))
 
     def _resolve(
         self,
