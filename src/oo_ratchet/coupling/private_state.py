@@ -192,13 +192,26 @@ class PrivateState:
 
     @classmethod
     def _stores_self(cls, sub: ast.AST) -> bool:
+        """Return True for an instance store: attribute, setattr or ``__dict__``."""
         if isinstance(sub, ast.Attribute):
             return isinstance(sub.ctx, ast.Store) and cls._is_self(sub.value)
-        if not isinstance(sub, ast.Call) or not sub.args:
+        if isinstance(sub, ast.Subscript):
+            return isinstance(sub.ctx, ast.Store) and cls._is_self_dict(sub.value)
+        return isinstance(sub, ast.Call) and cls._sets_self_attr(sub)
+
+    @classmethod
+    def _sets_self_attr(cls, call: ast.Call) -> bool:
+        func = call.func
+        if isinstance(func, ast.Name):
+            return (
+                func.id == "setattr" and bool(call.args) and cls._is_self(call.args[0])
+            )
+        if not isinstance(func, ast.Attribute):
             return False
-        func = sub.func
-        return (
-            isinstance(func, ast.Attribute)
-            and func.attr == "__setattr__"
-            and cls._is_self(sub.args[0])
+        if func.attr in _MUTATORS and cls._is_self_dict(func.value):
+            return True
+        if func.attr != "__setattr__":
+            return False
+        return cls._is_bound_receiver(func.value) or (
+            bool(call.args) and cls._is_self(call.args[0])
         )

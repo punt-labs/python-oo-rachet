@@ -15,7 +15,7 @@ from oo_ratchet.oo.audit import AuditLog
 
 from .lux.lux_test_oo_ratchet import FLOOR_BASE, FLOOR_REGRESSED_WITHIN_CAP
 from .lux.lux_test_oo_ratchet import GitFixture as OoFixture
-from .test_coupling_config import _HEADER, _hub, _max_lcom
+from .test_coupling_config import _HEADER, _frozen, _hub, _max_lcom
 from .test_coupling_ratchet import GitFixture
 
 pytestmark = pytest.mark.slow
@@ -33,6 +33,22 @@ _MARKER_MIXIN = (
 @pytest.mark.parametrize("mode", ["dataclass", "any"])
 def test_marker_mixin_mutating_host_state_is_exempt(mode: str) -> None:
     assert _max_lcom(_MARKER_MIXIN, mode) == 0.0
+
+
+@pytest.mark.parametrize("mode", ["dataclass", "any"])
+@pytest.mark.parametrize(
+    "write",
+    [
+        'setattr(self, "_{n}", 1)',
+        'self.__setattr__("_{n}", 1)',
+        'super().__setattr__("_{n}", 1)',
+        'self.__dict__["_{n}"] = 1',
+        "self.__dict__.update(_{n}=1)",
+    ],
+)
+def test_dataclass_storing_state_indirectly_is_measured(write: str, mode: str) -> None:
+    source = _frozen(write).replace("class Frozen:", "@dataclass\nclass Frozen:")
+    assert _max_lcom(source, mode) > 0.0
 
 
 def _last(path: Path) -> dict[str, object]:
