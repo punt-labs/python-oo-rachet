@@ -54,3 +54,22 @@ class TestClassKinds:
         metrics = ModuleMetrics("a.py", source).compute()
         assert metrics["classes_per_module"] == 0
         assert metrics["class_to_func_ratio"] == 0.5
+
+    def test_local_exception_and_enum_subclasses_do_not_count(self) -> None:
+        source = (
+            "class Base(Exception): ...\n"
+            "class Sub(Base): ...\n"
+            "class Kind(Enum): ...\n"
+            "class More(Kind): ...\n"
+        )
+        assert _count(source) == 0
+
+    def test_protocol_implementations_count(self) -> None:
+        source = (
+            "class Port(Protocol): ...\n"
+            "class A(Port): ...\n"
+            "class B(Port): ...\n"
+            "@dataclass\nclass Row: ...\n"
+            "class C(Row): ...\n"
+        )
+        assert _count(source) == 3

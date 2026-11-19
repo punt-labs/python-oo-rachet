@@ -23,12 +23,12 @@ class ClassKinds:
     )
     _EXCEPTION_SUFFIXES: ClassVar[tuple[str, ...]] = ("Error", "Exception", "Warning")
 
-    _exempt: set[str]
+    _inheritable: set[str]
     _count: int
 
     def __new__(cls, tree: ast.Module) -> Self:
         self = super().__new__(cls)
-        self._exempt = set()
+        self._inheritable = set()
         self._count = 0
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, ast.ClassDef):
@@ -41,22 +41,22 @@ class ClassKinds:
         return self._count
 
     def _classify(self, node: ast.ClassDef) -> None:
-        if self._is_exempt(node):
-            self._exempt.add(node.name)
-        else:
+        bases = [self._base_name(b) for b in node.bases]
+        if any(self._is_inheritable_base(b) for b in bases):
+            # Subclasses of a local exception or enum are exceptions/enums too;
+            # a class implementing a local Protocol is a real class.
+            self._inheritable.add(node.name)
+        elif not (
+            any(b in self._TYPE_BASES for b in bases)
+            or any(self._is_dataclass_decorator(d) for d in node.decorator_list)
+        ):
             self._count += 1
 
-    def _is_exempt(self, node: ast.ClassDef) -> bool:
-        if any(self._is_dataclass_decorator(d) for d in node.decorator_list):
-            return True
-        return any(self._is_exempt_base(self._base_name(b)) for b in node.bases)
-
-    def _is_exempt_base(self, name: str | None) -> bool:
+    def _is_inheritable_base(self, name: str | None) -> bool:
         if name is None:
             return False
         return (
-            name in self._exempt
-            or name in self._TYPE_BASES
+            name in self._inheritable
             or name in self._ENUM_BASES
             or name in self._EXCEPTION_BASES
             or name.endswith(self._EXCEPTION_SUFFIXES)

@@ -48,3 +48,7 @@ class TestCodeLines:
     def test_module_size_uses_code_lines(self) -> None:
         source = '"""Doc."""\n\n# c\nx = 1\n'
         assert ModuleMetrics("a.py", source).compute()["module_size"] == 1
+
+    def test_docstring_after_non_ascii_name_does_not_count(self) -> None:
+        source = "class Café: '''multi\n    line\n    '''\nx = 1\n"
+        assert _count(source) == 2

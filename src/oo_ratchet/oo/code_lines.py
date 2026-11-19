@@ -29,7 +29,9 @@ class CodeLines:
     def __new__(cls, source: str, tree: ast.Module) -> Self:
         self = super().__new__(cls)
         nonblank = {n for n, line in enumerate(source.splitlines(), 1) if line.strip()}
-        self._count = len(cls._token_lines(source, cls._docstrings(tree)) & nonblank)
+        self._count = len(
+            cls._token_lines(source, cls._docstrings(tree, source)) & nonblank
+        )
         return self
 
     @property
@@ -38,7 +40,8 @@ class CodeLines:
         return self._count
 
     @classmethod
-    def _docstrings(cls, tree: ast.Module) -> list[Span]:
+    def _docstrings(cls, tree: ast.Module, source: str) -> list[Span]:
+        lines = source.splitlines()
         spans: list[Span] = []
         for node in ast.walk(tree):
             if (
@@ -55,8 +58,13 @@ class CodeLines:
                 and isinstance(first.value, ast.Constant)
                 and isinstance(first.value.value, str)
             ):
-                end = (first.end_lineno or first.lineno, first.end_col_offset or 0)
-                spans.append(((first.lineno, first.col_offset), end))
+                end_line = first.end_lineno or first.lineno
+                start = (
+                    first.lineno,
+                    cls._chars(lines, first.lineno, first.col_offset),
+                )
+                end = (end_line, cls._chars(lines, end_line, first.end_col_offset or 0))
+                spans.append((start, end))
         return spans
 
     @classmethod
@@ -72,6 +80,12 @@ class CodeLines:
         if tok.type in cls._NOT_CODE:
             return False
         return tok.type != tokenize.STRING or not cls._inside(tok, docstrings)
+
+    @staticmethod
+    def _chars(lines: list[str], lineno: int, byte_col: int) -> int:
+        """Convert an AST UTF-8 byte column to the tokenizer's character column."""
+        line = lines[lineno - 1] if lineno <= len(lines) else ""
+        return len(line.encode()[:byte_col].decode(errors="ignore"))
 
     @staticmethod
     def _inside(tok: tokenize.TokenInfo, spans: list[Span]) -> bool:
