@@ -9,9 +9,9 @@ authors = [{ name = "Punt Labs" }]
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/punt-labs/python-oo-rachet"
-Repository = "https://github.com/punt-labs/python-oo-rachet"
-"Bug Tracker" = "https://github.com/punt-labs/python-oo-rachet/issues"
+Homepage = "https://github.com/punt-labs/python-oo-ratchet"
+Repository = "https://github.com/punt-labs/python-oo-ratchet"
+"Bug Tracker" = "https://github.com/punt-labs/python-oo-ratchet/issues"
 
 [project.scripts]
 oo-ratchet = "oo_ratchet.__main__:main"

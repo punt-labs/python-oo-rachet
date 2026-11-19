@@ -108,7 +108,7 @@ jobs:
     needs: test-install
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: release
+    environment: pypi
     permissions:
       id-token: write
     steps:
