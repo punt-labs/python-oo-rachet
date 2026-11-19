@@ -103,8 +103,14 @@ class CouplingConfig:
     def _normalize(path: str) -> str:
         """Return ``path`` in the scorer's repo-relative POSIX key form."""
         norm = posixpath.normpath(path.replace("\\", "/")) if path else ""
-        drive = len(norm) > 1 and norm[1] == ":"
-        if drive or norm in ("", ".", "..") or norm.startswith(("/", "../")):
+        if not CouplingConfig._is_relative(norm):
             msg = f"caps path {path!r} must be repository-relative"
             raise CouplingConfigError(msg)
         return norm
+
+    @staticmethod
+    def _is_relative(norm: str) -> bool:
+        """Return True for a normalized path inside the repository root."""
+        if norm in ("", ".", "..") or norm.startswith(("/", "../")):
+            return False
+        return not (len(norm) > 1 and norm[1] == ":")
