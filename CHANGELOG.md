@@ -6,7 +6,7 @@
 
 ### Fixed
 
-- `stateless-values = "any"` now counts in-place writes to private collections (`self._x[k] = v`, `+=`, `del`, and mutator calls such as `self._x.append(...)` / `.update(...)`) as private state, so those classes are no longer exempted from LCOM.
+- `stateless-values = "any"` now counts in-place writes to private collections (`self._x[k] = v`, `+=`, `del`, and mutator calls such as `self._x.append(...)` / `.update(...)`) as private state, so those classes are no longer exempted from LCOM. A mutator-named call on any private attribute counts, collection or not (`self._client.update(...)` too): a class holding a private dependency has instance state.
 
 ## [0.2.0] - 2026-11-18
 
