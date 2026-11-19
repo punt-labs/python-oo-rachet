@@ -16,8 +16,7 @@ _TIMEOUT = 10
 class GitError(Exception):
     """A git command the ratchet depends on failed.
 
-    Raised instead of degrading to a benign default, so an enforcement gate
-    fails closed: a failed ``git diff`` can never masquerade as "no changes".
+    Raised so a gate fails closed: a failed ``git diff`` is never "no changes".
     """
 
 
@@ -59,8 +58,8 @@ class GitRepo:
                 timeout=_TIMEOUT,
                 cwd=cwd,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return None
+        except (FileNotFoundError, subprocess.TimeoutExpired, UnicodeDecodeError):
+            return None  # non-UTF-8 output (a path name): unresolvable, fail closed
         if result.returncode != 0:
             return None
         return result.stdout
