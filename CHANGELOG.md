@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-18
+
+### Added
+
+- Published to PyPI as `punt-oo-ratchet` (CLI `oo-ratchet`) via `release.yml` trusted publishing.
+
 ### Fixed (Qodo review of #1)
 
 - `--tripwire` on all three gates, and it fails when main has no baseline.
