@@ -48,7 +48,12 @@ class CouplingConfig:
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
             msg = f"cannot read {path}: {exc}"
             raise CouplingConfigError(msg) from exc
-        table = data.get("tool", {}).get("oo-ratchet", {}).get("coupling", {})
+        table: object = data
+        for key in ("tool", "oo-ratchet", "coupling"):
+            if not isinstance(table, dict):
+                msg = f"{path}: [tool.oo-ratchet.coupling] path is not a table"
+                raise CouplingConfigError(msg)
+            table = table.get(key, {})
         if not isinstance(table, dict):
             msg = "[tool.oo-ratchet.coupling] must be a table"
             raise CouplingConfigError(msg)
@@ -62,7 +67,7 @@ class CouplingConfig:
             msg = f"unknown [tool.oo-ratchet.coupling] keys: {sorted(unknown)}"
             raise CouplingConfigError(msg)
         mode = table.get("stateless-values", "dataclass")
-        if mode not in STATELESS_MODES:
+        if not isinstance(mode, str) or mode not in STATELESS_MODES:
             msg = f"stateless-values must be one of {sorted(STATELESS_MODES)}"
             raise CouplingConfigError(msg)
         return cls(caps=cls._parse_caps(table.get("caps", {})), stateless_values=mode)

@@ -82,11 +82,26 @@ class CouplingScorer:
 
     @property
     def grades(self) -> dict[str, str]:
-        """Return PASS/FAIL per aggregated metric against the strict table."""
+        """Return PASS/FAIL per aggregated metric.
+
+        A max-aggregated metric passes only if every file meets its own target
+        (``__main__`` relaxation and configured caps included); an averaged
+        metric is judged against the strict table.
+        """
         return {
-            k: "PASS" if CouplingThresholds.meets(k, v) else "FAIL"
-            for k, v in self.summary.items()
+            k: "PASS" if self._passes(k, v) else "FAIL" for k, v in self.summary.items()
         }
+
+    def _passes(self, metric: str, value: float) -> bool:
+        if metric not in CouplingThresholds.MAX_AGGREGATED:
+            return CouplingThresholds.meets(metric, value)
+        return all(
+            CouplingThresholds.meets(
+                metric, float(r[metric]), str(r["file"]), self._config.caps
+            )
+            for r in self._results
+            if "error" not in r and metric in r
+        )
 
     @property
     def fail_count(self) -> int:

@@ -29,6 +29,7 @@ class CouplingBless:
     _audit: CouplingAudit
     _git: GitRepo
     _caps: dict[str, dict[str, float]]
+    _renames: dict[str, str]
 
     def __new__(
         cls,
@@ -42,6 +43,7 @@ class CouplingBless:
         self._audit = CouplingAudit(root)
         self._git = git
         self._caps = caps or {}
+        self._renames = {}
         return self
 
     def apply(
@@ -52,8 +54,20 @@ class CouplingBless:
         reason: str,
         source: str | None,
         allow_ci_write: bool = False,
+        base_ref: str | None = None,
     ) -> Outcome:
         """Bless every named path that clears the gate; exit 1 if any refused."""
+        blocked = self._precondition(reason, allow_ci_write=allow_ci_write)
+        if blocked is not None:
+            return blocked
+        self._renames = self._load_renames(base_ref)
+        accepted, refused = self._partition(current, paths)
+        if accepted:
+            self._write(accepted, current, reason=reason, source=source)
+        return self._report(accepted, refused, reason)
+
+    @staticmethod
+    def _precondition(reason: str, *, allow_ci_write: bool) -> Outcome | None:
         if os.environ.get("GITHUB_ACTIONS") == "true" and not allow_ci_write:
             return Outcome.failed(
                 "FAIL: refusing to write coupling baseline under GITHUB_ACTIONS "
@@ -61,9 +75,17 @@ class CouplingBless:
             )
         if not reason.strip():
             return Outcome.failed("FAIL: --rebaseline-files requires --reason <text>")
-        accepted, refused = self._partition(current, paths)
-        if accepted:
-            self._write(accepted, current, reason=reason, source=source)
+        return None
+
+    def _load_renames(self, base_ref: str | None) -> dict[str, str]:
+        """Return new-path -> base-path renames since the base, if resolvable."""
+        base = self._git.resolve_base(base_ref)
+        return self._git.diff(base).renames if base is not None else {}
+
+    @staticmethod
+    def _report(
+        accepted: list[str], refused: list[tuple[str, str]], reason: str
+    ) -> Outcome:
         lines = [f"\nBaseline blessed for {len(accepted)} file(s) (reason: {reason}):"]
         lines.append("  files:" if accepted else "  (none)")
         lines.extend(f"    {path}" for path in accepted)
@@ -103,13 +125,20 @@ class CouplingBless:
                 refused.append((requested, "not found in scored tree"))
                 continue
             entry = current[path]
-            gated = self.over_cap_and_regressed(path, entry, self._baseline.get(path))
+            gated = self.over_cap_and_regressed(path, entry, self._base_for(path))
             if gated:
                 refused.append((requested, self._gate_detail(path, entry, gated)))
                 continue
             if path not in accepted:
                 accepted.append(path)
         return accepted, refused
+
+    def _base_for(self, path: str) -> dict[str, float] | None:
+        """Return ``path``'s baseline row, following a rename from the base."""
+        entry = self._baseline.get(path)
+        if entry is None and path in self._renames:
+            return self._baseline.get(self._renames[path])
+        return entry
 
     def _resolve(
         self,
@@ -149,13 +178,13 @@ class CouplingBless:
         improved = 0
         for path in accepted:
             entry = current[path]
-            base = self._baseline.get(path) or {}
+            base = self._base_for(path) or {}
             regressed = self._regressed(entry, base)
             if regressed:
                 waived[path] = regressed
             elif self._improved(entry, base):
                 improved += 1
-            new_baseline[path] = entry
+            self._record(new_baseline, path, entry)
         self._baseline.save(new_baseline)
         self._audit.append(
             files_scored=len(accepted),
@@ -167,6 +196,18 @@ class CouplingBless:
             source=source,
             reason=reason,
         )
+
+    def _record(
+        self,
+        new_baseline: dict[str, dict[str, float]],
+        path: str,
+        entry: dict[str, float],
+    ) -> None:
+        """Write ``path``'s row, dropping the row it was renamed from."""
+        old = self._renames.get(path)
+        if old is not None and old != path:
+            new_baseline.pop(old, None)
+        new_baseline[path] = entry
 
     @staticmethod
     def _regressed(

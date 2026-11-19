@@ -65,11 +65,27 @@ class TestConfigLoad:
             {"caps": ["a.py"]},
             {"stateless-values": "all"},
             {"hub-caps": {}},
+            {"stateless-values": ["any"]},
         ],
     )
     def test_rejects_malformed(self, table: dict[str, object]) -> None:
         with pytest.raises(CouplingConfigError):
             CouplingConfig.from_table(table)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'tool = "bad"\n',
+            "[tool]\noo-ratchet = 3\n",
+            "[tool.oo-ratchet]\ncoupling = 1\n",
+        ],
+    )
+    def test_non_table_parents_are_controlled_error(
+        self, tmp_path: Path, text: str
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(text)
+        with pytest.raises(CouplingConfigError):
+            CouplingConfig.load(tmp_path)
 
     def test_bad_toml_is_controlled_error(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[tool\n")
@@ -129,10 +145,36 @@ _SETATTR = (
 )
 
 
+def _frozen(write: str) -> str:
+    return (
+        f"{_HEADER}\nclass Frozen:\n"
+        "    def __init__(self) -> None:\n"
+        f"        {write.format(n='a')}\n"
+        f"        {write.format(n='b')}\n\n"
+        "    def get_a(self) -> int:\n"
+        "        return self._a\n\n"
+        "    def get_b(self) -> int:\n"
+        "        return self._b\n"
+    )
+
+
 def _max_lcom(source: str, mode: str) -> float:
     resolver = ImportResolver("m", frozenset({"m"}), "pkg", is_package=False)
     metrics = ModuleCouplingMetrics("m.py", ast.parse(source), resolver, mode)
     return float(metrics.compute()["max_lcom"])
+
+
+class TestCappedGrades:
+    """The aggregate grade honors per-file caps, so the exit code agrees."""
+
+    def test_capped_hub_passes_summary(self, fx: GitFixture) -> None:
+        _hub(fx, 9)
+        capped = CouplingScorer(
+            fx.root / "pkg", fx.root, CouplingConfig(caps=_HUB_CAPS)
+        )
+        strict = CouplingScorer(fx.root / "pkg", fx.root)
+        assert capped.grades["efferent_coupling"] == "PASS"
+        assert strict.grades["efferent_coupling"] == "FAIL"
 
 
 class TestStatelessValues:
@@ -144,8 +186,30 @@ class TestStatelessValues:
     def test_any_exempts_class_without_private_state(self) -> None:
         assert _max_lcom(_PUBLIC_STATE, "any") == 0.0
 
-    def test_any_still_measures_private_setattr_state(self) -> None:
-        assert _max_lcom(_SETATTR, "any") > 0.0
+    @pytest.mark.parametrize(
+        "write",
+        [
+            'object.__setattr__(self, "_{n}", 1)',
+            'super().__setattr__("_{n}", 1)',
+            'self.__setattr__("_{n}", 1)',
+            'type(self).__setattr__(self, "_{n}", 1)',
+            'setattr(self, "_{n}", 1)',
+            'self.__dict__["_{n}"] = 1',
+        ],
+    )
+    def test_any_still_measures_private_writes(self, write: str) -> None:
+        assert _max_lcom(_frozen(write), "any") > 0.0
+
+    def test_nested_class_state_does_not_block_parent(self) -> None:
+        source = (
+            f"{_HEADER}\nclass Outer:\n"
+            "    def left(self) -> int:\n        return 1\n\n"
+            "    def right(self) -> int:\n        return 2\n\n"
+            "    class Inner:\n"
+            "        def __init__(self) -> None:\n"
+            "            self._v = 1\n"
+        )
+        assert _max_lcom(source, "any") == 0.0
 
 
 @pytest.mark.slow
@@ -186,6 +250,29 @@ class TestCouplingBless:
         fx.commit("bless")
         outcome = fx.ratchet().check(fx.scorer(), base_ref=base, require_base=True)
         assert outcome.exit_code == 0, outcome.lines
+
+    def test_renamed_file_bless_waives_at_check(self, fx: GitFixture) -> None:
+        _hub(fx, 8)
+        fx.snapshot()
+        base = fx.commit("base")
+        fx.move("pkg/hub.py", "pkg/wiring.py")
+        body = "".join(f"from . import m{i}\n" for i in range(9))
+        fx.write("pkg/wiring.py", f"{_HEADER}{body}")
+        caps = {"pkg/wiring.py": {"efferent_coupling": 20.0}}
+        scorer = CouplingScorer(fx.root / "pkg", fx.root, CouplingConfig(caps=caps))
+        outcome = CouplingBless(fx.root, GitRepo(fx.root), caps).apply(
+            CouplingBaseline.metrics_by_file(scorer.results),
+            ["pkg/wiring.py"],
+            reason="renamed hub gains a module",
+            source=None,
+            allow_ci_write=True,
+            base_ref=base,
+        )
+        assert outcome.exit_code == 0, outcome.lines
+        assert CouplingBaseline(fx.root).get("pkg/hub.py") is None
+        fx.commit("rename and bless")
+        check = fx.ratchet().check(fx.scorer(), base_ref=base, require_base=True)
+        assert check.exit_code == 0, check.lines
 
     def test_unblessed_regression_still_fails(self, fx: GitFixture) -> None:
         base = self._setup(fx)

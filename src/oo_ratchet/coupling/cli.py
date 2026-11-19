@@ -199,6 +199,7 @@ class Cli:
                 reason=opts.reason,
                 source=opts.source,
                 allow_ci_write=opts.allow_ci_write,
+                base_ref=opts.base_ref,
             )
         if opts.update:
             return writer.update(
