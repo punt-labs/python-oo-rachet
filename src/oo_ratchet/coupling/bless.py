@@ -3,7 +3,8 @@
 A genuinely-necessary new dependency edge that stays within its absolute cap
 may be recorded even though ``--update`` refuses any regression. A metric
 refuses only when it BOTH exceeds its cap (per-file ``caps`` included) AND
-regressed against the file's committed baseline; every recorded number comes
+regressed against the file's baseline committed at the comparison base (the
+one ``--check`` uses, so the recorded waiver matches); every recorded number comes
 from the scorer; only the named paths are touched; and each bless appends a
 ``"rebaseline-files"`` audit entry carrying the caller's ``reason``.
 """
@@ -30,6 +31,7 @@ class CouplingBless:
     _git: GitRepo
     _caps: dict[str, dict[str, float]]
     _renames: dict[str, str]
+    _reference: dict[str, dict[str, float]]
 
     def __new__(
         cls,
@@ -44,6 +46,7 @@ class CouplingBless:
         self._git = git
         self._caps = caps or {}
         self._renames = {}
+        self._reference = {}
         return self
 
     def apply(
@@ -60,7 +63,9 @@ class CouplingBless:
         blocked = self._precondition(reason, allow_ci_write=allow_ci_write)
         if blocked is not None:
             return blocked
-        self._renames = self._load_renames(base_ref)
+        loaded = self._load_base(base_ref)
+        if loaded is not None:
+            return loaded
         accepted, refused = self._partition(current, paths)
         if accepted:
             self._write(accepted, current, reason=reason, source=source)
@@ -77,10 +82,20 @@ class CouplingBless:
             return Outcome.failed("FAIL: --rebaseline-files requires --reason <text>")
         return None
 
-    def _load_renames(self, base_ref: str | None) -> dict[str, str]:
-        """Return new-path -> base-path renames since the base, if resolvable."""
+    def _load_base(self, base_ref: str | None) -> Outcome | None:
+        """Load renames and the base-committed baseline the next check uses.
+
+        An explicit ``--base-ref`` that does not resolve fails; with no base at
+        all (local first adoption) the worktree baseline is the reference.
+        """
         base = self._git.resolve_base(base_ref)
-        return self._git.diff(base).renames if base is not None else {}
+        if base is None:
+            if base_ref is not None:
+                return Outcome.failed(f"FAIL: cannot resolve --base-ref {base_ref}")
+            return None
+        self._renames = self._git.diff(base).renames
+        self._reference = self._git.show_baseline(base) or {}
+        return None
 
     @staticmethod
     def _report(
@@ -134,11 +149,9 @@ class CouplingBless:
         return accepted, refused
 
     def _base_for(self, path: str) -> dict[str, float] | None:
-        """Return ``path``'s baseline row, following a rename from the base."""
-        entry = self._baseline.get(path)
-        if entry is None and path in self._renames:
-            return self._baseline.get(self._renames[path])
-        return entry
+        """Return ``path``'s row at the base (following a rename), else worktree."""
+        entry = self._reference.get(self._renames.get(path, path))
+        return entry if entry is not None else self._baseline.get(path)
 
     def _resolve(
         self,

@@ -280,6 +280,36 @@ class TestCouplingBless:
         outcome = fx.ratchet().check(fx.scorer(), base_ref=base, require_base=True)
         assert outcome.exit_code == 1
 
+    def test_edited_worktree_baseline_does_not_bypass_gate(
+        self, fx: GitFixture
+    ) -> None:
+        base = self._setup(fx)
+        row = CouplingBaseline(fx.root).get("pkg/hub.py")
+        assert row is not None
+        fx.write_baseline({"pkg/hub.py": {**row, "efferent_coupling": 9.0}})
+        scorer = fx.scorer()
+        outcome = CouplingBless(fx.root, GitRepo(fx.root)).apply(
+            CouplingBaseline.metrics_by_file(scorer.results),
+            ["pkg/hub.py"],
+            reason="r",
+            source=None,
+            allow_ci_write=True,
+            base_ref=base,
+        )
+        assert outcome.exit_code == 1
+
+    def test_unresolvable_base_ref_fails(self, fx: GitFixture) -> None:
+        self._setup(fx)
+        outcome = CouplingBless(fx.root, GitRepo(fx.root), _HUB_CAPS).apply(
+            {},
+            ["pkg/hub.py"],
+            reason="r",
+            source=None,
+            allow_ci_write=True,
+            base_ref="no-such-ref",
+        )
+        assert outcome.exit_code == 1
+
     def test_unknown_path_refused(self, fx: GitFixture) -> None:
         self._setup(fx)
         scorer = fx.scorer()

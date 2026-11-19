@@ -10,3 +10,5 @@
 {"ts":"2026-11-19T02:54:15Z","commit":"ba9dc55","source":null,"files_scored":49,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
 {"ts":"2026-11-19T02:54:29Z","commit":"ba9dc55","source":null,"files_scored":49,"files_improved":0,"files_regressed":1,"verdict":"relaxed","reason":"bless tracks per-call renames (_renames) for the rename-aware gate; new file in this PR","deltas":{"src/oo_ratchet/coupling/bless.py":{"max_lcom":[0.571,0.644],"avg_lcom":[0.571,0.644]}}}
 {"ts":"2026-11-19T02:54:30Z","commit":"ba9dc55","source":null,"files_scored":49,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-19T02:56:54Z","commit":"554577a","source":null,"files_scored":49,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-11-19T02:57:09Z","commit":"554577a","source":null,"files_scored":49,"files_improved":0,"files_regressed":1,"verdict":"relaxed","reason":"bless keeps the base-committed reference baseline (_reference) beside renames; new file in this PR","deltas":{"src/oo_ratchet/coupling/bless.py":{"max_lcom":[0.644,0.667],"avg_lcom":[0.644,0.667]}}}
