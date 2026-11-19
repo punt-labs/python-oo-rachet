@@ -71,6 +71,11 @@ metric is both over its cap (configured caps included) and worse than its
 baseline; refused files are listed and not written, and the bless is audited
 and waives exactly those deltas at the next `--check`.
 
+`oo-ratchet suppressions <src> --rebaseline --reason "<why>" [--source PL-123]`
+resets the suppression baseline to the current counts. It's the one write that may
+raise the total (for example after a package upgrade changes the counter), and it
+is audited.
+
 ## Provenance
 
 Seeded from vox (`tools/oo_ratchet`, `tools/coupling`, `tools/suppression`),

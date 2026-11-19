@@ -10,6 +10,8 @@
 - `[tool.oo-ratchet.coupling.caps]`: per-file metric caps keyed by exact repository-relative path, used by `--check`, the per-file report and the bless gate.
 - `oo-ratchet coupling --rebaseline-files PATHS --reason TEXT`: bounded, audited bless of named files; refuses a metric that is both over its cap and regressed against the base-committed baseline.
 
+- `oo-ratchet suppressions --rebaseline --reason TEXT [--source REF]`: audited reset of the suppression baseline to the current counts, the one write allowed to raise the total, e.g. after adopting a package version that counts differently (PL-1175).
+
 ### Changed
 
 - LCOM's stateless-value check no longer looks inside nested classes, in either mode: an inner class's `self` stores don't block exempting its parent.

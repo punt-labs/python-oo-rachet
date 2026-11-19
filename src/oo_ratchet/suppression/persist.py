@@ -116,6 +116,30 @@ class BaselineFile:
         }
         self._append(entry)
 
+    def rebaseline(
+        self,
+        report: SuppressionReport,
+        *,
+        reason: str,
+        source: str | None,
+        commit: str | None,
+    ) -> int | None:
+        """Save ``report`` and audit it as a ``rebaseline``; return the old total."""
+        before = self._as_int(self._entries.get("total", 0)) if self.exists else None
+        self.save(report)
+        entry: dict[str, object] = {
+            "ts": self._now(),
+            "verdict": "rebaseline",
+            "before": before,
+            "total": report.total,
+            "by_category": report.by_category,
+            "reason": reason,
+            "source": source,
+            "commit": commit,
+        }
+        self._append(entry)
+        return before
+
     def _append(self, entry: dict[str, object]) -> None:
         with self._audit_path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
