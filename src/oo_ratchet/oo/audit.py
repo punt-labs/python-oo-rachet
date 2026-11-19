@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import datetime
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Self
+from typing import ClassVar, Self
 
 
 class AuditError(Exception):
@@ -23,6 +24,17 @@ class AuditLog:
     _path: Path
 
     FILENAME: str = ".oo-audit.jsonl"
+
+    # Verdicts that record an audited, justified loosening -- and therefore
+    # waive a locked regression at check() time. "relaxed" is --relax
+    # (any locked regression, any metric). "rebaseline-files" is
+    # --rebaseline-files (DES-097): bounded per-file, refusing an
+    # over-cap-and-regressed metric outright, so what reaches the audit log
+    # is already gated -- but it is still an audited loosening against the
+    # committed baseline and deserves the same waiver at check() time.
+    _WAIVABLE_VERDICTS: ClassVar[frozenset[str]] = frozenset(
+        {"relaxed", "rebaseline-files"}
+    )
 
     def __new__(cls, root: Path) -> Self:
         self = super().__new__(cls)
@@ -50,13 +62,21 @@ class AuditLog:
         source: str | None,
         commit: str | None,
         reason: str | None = None,
+        removed: Iterable[str] = (),
     ) -> None:
         """Append one verdict entry, recording its source (PR/bead ref).
 
-        ``reason`` carries the human justification for a ``relaxed`` verdict;
-        it is an audit marker, not an enforcement gate.
+        ``removed`` names the baseline rows this write deleted, sorted, so
+        every row that leaves the baseline is accounted for in the log.
+
+        ``reason`` carries the human justification for a ``relaxed`` or
+        ``rebaseline-files`` verdict; it is an audit marker, not an
+        enforcement gate. The key is present only when ``reason`` is set --
+        ``update``/``reconcile``/``rebaseline`` entries, which have no
+        per-invocation justification, carry no ``"reason"`` key at all
+        rather than a ``"reason": null``.
         """
-        entry = {
+        entry: dict[str, object] = {
             "ts": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "commit": commit,
             "source": source,
@@ -64,9 +84,11 @@ class AuditLog:
             "files_improved": files_improved,
             "files_regressed": files_regressed,
             "verdict": verdict,
-            "reason": reason,
-            "deltas": deltas,
         }
+        if reason is not None:
+            entry["reason"] = reason
+        entry["deltas"] = deltas
+        entry["removed"] = sorted(removed)
         with self._path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
@@ -78,6 +100,11 @@ class AuditLog:
         change under review, so a historical relaxation cannot bless a fresh
         regression re-locked via ``--rebaseline`` (S7 / gvr).
 
+        Both ``--relax`` (``"relaxed"``) and ``--rebaseline-files``
+        (``"rebaseline-files"``, DES-097) are audited, justified loosenings
+        against the committed baseline and waive a locked regression the
+        same way -- see ``_WAIVABLE_VERDICTS``.
+
         Entries are matched *structurally* — by canonical JSON — so a reformat
         of the base log (whitespace, key order) does not make a base
         relaxation look new and over-waive it.
@@ -88,7 +115,7 @@ class AuditLog:
             entry = self._parse(line)
             if self._canonical(entry) in base_keys:
                 continue
-            if entry.get("verdict") != "relaxed":
+            if entry.get("verdict") not in self._WAIVABLE_VERDICTS:
                 continue
             deltas = entry.get("deltas")
             if not isinstance(deltas, dict):

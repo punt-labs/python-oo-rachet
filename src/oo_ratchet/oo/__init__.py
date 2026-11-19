@@ -5,6 +5,7 @@ from __future__ import annotations
 from .apply import PlanApplier, UpdatePlan
 from .audit import AuditError, AuditLog
 from .baseline import Baseline, BaselineError
+from .bless import FileBless
 from .cli import Cli, Options, main
 from .compare import FileReview, Review, Row
 from .diffmodel import Diff, LineChange
@@ -27,6 +28,7 @@ __all__ = [
     "Cli",
     "Diff",
     "ExtractionDetector",
+    "FileBless",
     "FileReview",
     "GitError",
     "GitRepo",

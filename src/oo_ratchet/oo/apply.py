@@ -52,7 +52,7 @@ class PlanApplier:
         new_baseline = dict(self._baseline.entries)
         refused: list[tuple[str, str]] = []
         deltas: dict[str, dict[str, list[float]]] = {}
-        removed = 0
+        removed: list[str] = []
         for path in sorted(plan.touched):
             if path in plan.parse_errors:
                 continue  # on disk but unparseable: keep its row, refuse below
@@ -70,10 +70,11 @@ class PlanApplier:
             files_regressed=len({p for p, _ in refused}) + len(broken),
             verdict="pass" if not refused and not broken else "fail",
             deltas=deltas,
+            removed=removed,
             source=source,
             commit=self._git.short_head(),
         )
-        return self._report(len(deltas), removed, refused, broken)
+        return self._report(len(deltas), len(removed), refused, broken)
 
     def _write_or_refuse(
         self,
@@ -82,7 +83,7 @@ class PlanApplier:
         path: str,
         refused: list[tuple[str, str]],
         deltas: dict[str, dict[str, list[float]]],
-    ) -> int:
+    ) -> list[str]:
         entry = plan.current[path]
         base_entry = self._base_for(plan, path)
         regressed = self.regressed(entry, base_entry)
@@ -91,7 +92,7 @@ class PlanApplier:
             # the next run -- dropping it would let a later run treat the rename
             # as a brand-new file and launder the regression.
             refused.extend((path, m) for m in regressed)
-            return 0
+            return []
         new_baseline[path] = entry
         file_deltas = self.deltas(entry, base_entry)
         if file_deltas:
@@ -106,21 +107,23 @@ class PlanApplier:
 
     def _drop_rename_source(
         self, new_baseline: dict[str, dict[str, float]], plan: UpdatePlan, path: str
-    ) -> int:
+    ) -> list[str]:
         old = plan.renames.get(path)
         if old is not None:
             return self._drop(new_baseline, old)
-        return 0
+        return []
 
     @staticmethod
-    def _drop(new_baseline: dict[str, dict[str, float]], path: str) -> int:
+    def _drop(new_baseline: dict[str, dict[str, float]], path: str) -> list[str]:
         if path in new_baseline:
             del new_baseline[path]
-            return 1
-        return 0
+            return [path]
+        return []
 
     @staticmethod
-    def _prune_kept(new_baseline: dict[str, dict[str, float]], plan: UpdatePlan) -> int:
+    def _prune_kept(
+        new_baseline: dict[str, dict[str, float]], plan: UpdatePlan
+    ) -> list[str]:
         # Prune only genuine deletions. A file present on disk is either
         # parse-clean (in ``current``) or a parse error; a rename source is kept
         # whenever its target is present on disk at all -- parseable or not --
@@ -133,7 +136,7 @@ class PlanApplier:
         stale = [p for p in new_baseline if p not in kept]
         for p in stale:
             del new_baseline[p]
-        return len(stale)
+        return stale
 
     @staticmethod
     def regressed(entry: dict[str, float], base: dict[str, float] | None) -> list[str]:
@@ -145,6 +148,41 @@ class PlanApplier:
             for m in entry
             if m in base and not Thresholds.better_or_equal(m, entry[m], base[m])
         ]
+
+    @staticmethod
+    def over_cap_and_regressed(
+        entry: dict[str, float], base: dict[str, float] | None
+    ) -> list[str]:
+        """Return the metrics that refuse a ``--rebaseline-files`` bless.
+
+        A metric refuses the bless only when it BOTH fails its absolute
+        ``Thresholds.meets`` cap AND regressed against ``base`` (worse than
+        the file's existing committed baseline value for that metric, per
+        ``Thresholds.better_or_equal`` -- direction-aware, so a floor metric
+        like ``method_ratio`` regresses on a DECREASE while a ceiling metric
+        like ``module_size`` regresses on an INCREASE). An over-cap metric
+        that is unchanged or improved against its baseline is carried
+        forward untouched, not refused -- ``check()``'s own lock/
+        no-regression rule already grandfathers a pre-existing,
+        non-regressing violation; refusing it again here would let one
+        already-accepted debt on a file block an unrelated,
+        genuinely-necessary within-cap regression on the SAME file.
+
+        ``base`` absent (a genuinely new file, never rebaselined before) or
+        missing this specific metric falls back to the strict rule: any
+        value over cap refuses -- there is no prior value to grandfather
+        against.
+        """
+        refusals: list[str] = []
+        for metric, value in entry.items():
+            if Thresholds.meets(metric, value):
+                continue
+            if base is None or metric not in base:
+                refusals.append(metric)
+                continue
+            if not Thresholds.better_or_equal(metric, value, base[metric]):
+                refusals.append(metric)
+        return refusals
 
     @staticmethod
     def deltas(
