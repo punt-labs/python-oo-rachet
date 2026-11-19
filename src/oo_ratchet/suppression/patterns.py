@@ -12,12 +12,16 @@ _NOQA_RE = re.compile(r"#\s*noqa\b")
 _TYPE_IGNORE_RE = re.compile(r"#\s*type:\s*ignore\b")
 _PYLINT_DISABLE_RE = re.compile(r"#\s*pylint:\s*disable\b")
 _PYRIGHT_IGNORE_RE = re.compile(r"#\s*pyright:\s*ignore\b")
+_FILE_LEVEL_RE = re.compile(
+    r"#\s*(?:ruff:\s*noqa|flake8:\s*noqa|mypy:\s*ignore-errors|pyright:\s*basic)\b"
+)
 
 PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("noqa", _NOQA_RE),
     ("type_ignore", _TYPE_IGNORE_RE),
     ("pylint_disable", _PYLINT_DISABLE_RE),
     ("pyright_ignore", _PYRIGHT_IGNORE_RE),
+    ("file_level", _FILE_LEVEL_RE),
 )
 
 PATTERN_NAMES: tuple[str, ...] = tuple(name for name, _ in PATTERNS)
@@ -115,12 +119,28 @@ class FileSuppressions:
             for line in range(tok.start[0], tok.end[0] + 1):
                 code_lines.add(line)
 
+        self._count_comments(comments_by_line, code_lines)
+
+    def _count_comments(
+        self, comments_by_line: dict[int, str], code_lines: set[int]
+    ) -> None:
+        """Count file-level directives anywhere, inline markers on code lines."""
+        first_code = min(code_lines) if code_lines else None
         for lineno, comment_text in comments_by_line.items():
-            if lineno not in code_lines:
-                continue
-            for name, pattern in PATTERNS:
-                if pattern.search(comment_text):
-                    self._counts[name] += 1
+            before_code = first_code is None or lineno < first_code
+            if self._is_file_level(comment_text, before_code=before_code):
+                self._counts["file_level"] += 1
+            elif lineno in code_lines:
+                for name, pattern in PATTERNS:
+                    if pattern.search(comment_text):
+                        self._counts[name] += 1
+
+    @staticmethod
+    def _is_file_level(comment_text: str, *, before_code: bool) -> bool:
+        """Return whether a comment silences a tool for the whole file."""
+        if _FILE_LEVEL_RE.search(comment_text):
+            return True
+        return before_code and _TYPE_IGNORE_RE.search(comment_text) is not None
 
     def _fallback_scan(self, source: str) -> None:
         """Count every marker-bearing line when the source will not tokenize.

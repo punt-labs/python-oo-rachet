@@ -147,6 +147,11 @@ class CouplingRatchet:
         so this only ever relaxes the single adoption commit.
         """
         if tripwire:
+            if not self._baseline.exists:
+                return Outcome.failed(
+                    "FAIL: --tripwire with no baseline on main; only the "
+                    "adoption commit that adds the baseline may bootstrap"
+                )
             return Outcome.passed(
                 "Base predates baseline adoption on push tripwire -- "
                 "one-time bootstrap pass"

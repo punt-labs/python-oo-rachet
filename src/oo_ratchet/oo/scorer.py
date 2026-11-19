@@ -37,7 +37,7 @@ class Scorer:
         self = super().__new__(cls)
         root = repo_root if repo_root is not None else Path.cwd()
         if target.is_file():
-            self._results = [self._score_file(target, root)]
+            self._results = [self._score_or_error(target, root)]
         elif target.is_dir():
             self._results = self._score_directory(target, root)
         else:
@@ -87,8 +87,15 @@ class Scorer:
 
     @classmethod
     def _score_file(cls, path: Path, root: Path) -> dict[str, float | int | str]:
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         return ModuleMetrics(cls._normalize(path, root), source).compute()
+
+    @classmethod
+    def _score_or_error(cls, path: Path, root: Path) -> dict[str, float | int | str]:
+        try:
+            return cls._score_file(path, root)
+        except (SyntaxError, UnicodeDecodeError, OSError) as e:
+            return {"file": cls._normalize(path, root), "error": str(e)}
 
     @classmethod
     def _score_directory(
@@ -98,11 +105,7 @@ class Scorer:
         for py_file in sorted(directory.rglob("*.py")):
             if py_file.name.startswith("."):
                 continue
-            key = cls._normalize(py_file, root)
-            try:
-                results.append(cls._score_file(py_file, root))
-            except (SyntaxError, UnicodeDecodeError, OSError) as e:
-                results.append({"file": key, "error": str(e)})
+            results.append(cls._score_or_error(py_file, root))
         return results
 
     def _aggregate(self) -> dict[str, float]:

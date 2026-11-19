@@ -76,11 +76,13 @@ class PackageScorer:
 
     def _efferent(self, pkg_name: str, keys: set[str]) -> int:
         siblings: set[str] = set()
+        prefix = f"{pkg_name}."
+        depth = pkg_name.count(".") + 1
         for key in keys:
             for dep in self._graph.neighbors(key):
-                dep_top = dep.split(".")[0]
-                if dep_top != pkg_name and dep_top not in keys:
-                    siblings.add(dep_top)
+                if dep == pkg_name or dep.startswith(prefix) or dep in keys:
+                    continue
+                siblings.add(".".join(dep.split(".")[:depth]))
         return len(siblings)
 
     def _intra_density(self, keys: set[str], pkg_name: str) -> float:

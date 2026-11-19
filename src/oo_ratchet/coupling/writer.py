@@ -83,6 +83,7 @@ class CouplingWriter:
         if blocked is not None:
             return blocked
         current = CouplingBaseline.metrics_by_file(scorer.results)
+        gone = sorted(set(self._baseline.entries) - set(current))
         self._baseline.save(current)
         self._audit.append(
             files_scored=len(current),
@@ -90,6 +91,7 @@ class CouplingWriter:
             files_regressed=0,
             verdict="rebaseline",
             deltas={},
+            removed=gone,
             commit=self._git.short_head(),
             source=source,
         )
@@ -176,6 +178,7 @@ class CouplingWriter:
                 new_baseline, current, path, renames, refused, deltas
             )
         broken = sorted(parse_errors)
+        gone = sorted(set(self._baseline.entries) - set(new_baseline))
         self._baseline.save(new_baseline)
         self._audit.append(
             files_scored=len(current),
@@ -185,6 +188,7 @@ class CouplingWriter:
             deltas=deltas,
             commit=self._git.short_head(),
             source=source,
+            removed=gone,
         )
         return self._report(len(deltas), removed, refused, broken)
 

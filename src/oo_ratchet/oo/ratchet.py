@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Self
 
@@ -106,12 +107,8 @@ class Ratchet:
     ) -> dict[str, frozenset[str]]:
         """Detect new, zero-class files whose content traces to a baselined origin.
 
-        Only these earn the PY-OO-7 primitives/boundary carve-out on
-        ``method_ratio``/``class_to_func_ratio`` (see ``provenance.py``).
-        A brand-new zero-class module with no extraction provenance -- and
-        every other new-file metric on an extracted module -- is still held
-        to the full absolute-threshold bar, so genuinely new debt (a fat-
-        parameter module, an oversized module, ...) cannot ride this waiver.
+        Only these earn the PY-OO-7 shape-metric carve-out (``provenance.py``);
+        every other new-file metric still meets the absolute threshold.
         """
         candidates = [
             path
@@ -152,12 +149,11 @@ class Ratchet:
     @staticmethod
     def _removed_by_origin(
         origins: list[str], changes: dict[str, LineChange]
-    ) -> dict[str, frozenset[str]]:
+    ) -> dict[str, Counter[str]]:
         """Return the substantive lines that actually left each origin.
 
-        Lines the origin re-added (a re-indent, a wrap in a class) only moved
-        within it, so they are subtracted: only genuinely departed code can
-        have been extracted.
+        Lines the origin re-added (a re-indent, a class wrap) only moved within
+        it, so they are subtracted: only departed code can be extracted.
         """
         return {
             path: ExtractionDetector.substantive_lines(changes[path].removed)
@@ -204,19 +200,15 @@ class Ratchet:
     def _absent_base_baseline(self, *, tripwire: bool = False) -> Outcome:
         """Decide the verdict when the base commit has no baseline blob.
 
-        Genuine first-adoption requires the ``origin/main`` tip to be resolvable
-        AND to also lack a baseline. Two fail-closed cases (S2 / F2 / gvr):
-
-        - the tip resolves and *carries* a baseline: the branch forked before
-          adoption and would launder a regression past the empty base;
-        - the tip is unresolvable (unfetched/stale) *and* an in-tree baseline
-          exists: we cannot confirm first-adoption, so don't assume it.
-
-        Under ``tripwire`` (post-merge ``push:[main]``, base ``HEAD~1``) the
-        checkout is main itself, so an absent base baseline is the adoption
-        merge and bootstrap-passes, as in the coupling ratchet.
+        Bootstrap only for genuine first adoption: ``origin/main`` resolves and
+        lacks a baseline too, or (``tripwire``, on main) HEAD adds it.
         """
         if tripwire:
+            if not self._baseline.exists:
+                return Outcome.failed(
+                    "FAIL: --tripwire with no baseline on main; only the "
+                    "adoption commit that adds the baseline may bootstrap"
+                )
             return Outcome.passed(
                 "Base predates baseline adoption on push tripwire -- "
                 "one-time bootstrap pass"
@@ -243,11 +235,8 @@ class Ratchet:
     def _empty_baseline() -> Outcome:
         """Fail closed on an empty ``{}`` base baseline under ``--require-base``.
 
-        A truncated write or a bad merge can empty the baseline; every touched
-        file would then look new. Under ``--require-base`` fail closed, exactly
-        like a missing baseline. Without ``--require-base`` the empty baseline
-        flows through the comparison instead (see ``check``), so the
-        touched-file parse and in-tree lock checks still run.
+        A truncated write or bad merge would make every touched file look new.
+        Without ``--require-base`` it flows through ``check``'s comparison.
         """
         return Outcome.failed(
             "FAIL: base baseline is empty (truncated write or bad "

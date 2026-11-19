@@ -45,7 +45,7 @@ class BaseRescanner:
         pyproject_rel = (
             f"{project_rel}/pyproject.toml" if project_rel else "pyproject.toml"
         )
-        paths = [target_rel]
+        paths = [target_rel or "."]  # git rejects "" as a pathspec
         if self._git.path_exists_at_ref(ref, pyproject_rel):
             paths.append(pyproject_rel)
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,7 +57,12 @@ class BaseRescanner:
             # Rewire by_file keys from the tmp materialization's root onto
             # ``target`` itself -- both reports must key the same file the
             # same way, or every path looks unrelated to the other side.
-            return SuppressionReport.rebased(scanned, str(scan_target), str(target))
+            old, new = str(scan_target), str(target)
+            if scan_target.is_dir():
+                # Rebase whole segments; a "." target keys files as "pkg/a.py".
+                old += "/"
+                new = "" if new == "." else new.rstrip("/") + "/"
+            return SuppressionReport.rebased(scanned, old, new)
 
     def relpath(self, path: Path) -> str:
         """Return ``path`` as a POSIX path relative to the git repository root.

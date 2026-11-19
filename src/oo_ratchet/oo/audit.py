@@ -144,10 +144,13 @@ class AuditLog:
     def _parse(line: str) -> dict[str, object]:
         """Parse one audit line, or raise ``AuditError`` naming the bad line."""
         try:
-            parsed: dict[str, object] = json.loads(line)
+            parsed = json.loads(line)
         except json.JSONDecodeError as exc:
             msg = f"malformed audit entry {line[:80]!r}: {exc}"
             raise AuditError(msg) from exc
+        if not isinstance(parsed, dict):
+            msg = f"malformed audit entry {line[:80]!r}: not a JSON object"
+            raise AuditError(msg)
         return parsed
 
     def _raw_lines(self) -> list[str]:

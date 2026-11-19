@@ -19,9 +19,18 @@ class ImportResolver:
     _own_key: str
     _pkg_modules: frozenset[str]
     _pkg_name: str
+    _is_package: bool
 
-    def __new__(cls, own_key: str, pkg_modules: frozenset[str], pkg_name: str) -> Self:
+    def __new__(
+        cls,
+        own_key: str,
+        pkg_modules: frozenset[str],
+        pkg_name: str,
+        *,
+        is_package: bool = False,
+    ) -> Self:
         self = super().__new__(cls)
+        self._is_package = is_package
         self._own_key = own_key
         self._pkg_modules = pkg_modules
         self._pkg_name = pkg_name
@@ -49,8 +58,15 @@ class ImportResolver:
         if node.level == 0:
             if node.module is None:
                 return set()
-            match = self._absolute(node.module.split("."))
-            return {match} if match is not None else set()
+            parts = node.module.split(".")
+            found = {self._absolute(parts)}
+            # ``from pkg import mod`` imports a module named by the alias.
+            found.update(
+                self._absolute([*parts, alias.name])
+                for alias in node.names
+                if alias.name != "*"
+            )
+            return {m for m in found if m is not None}
         if node.module is not None:
             match = self._relative_module(node.module, node.level)
             return {match} if match is not None else set()
@@ -87,7 +103,11 @@ class ImportResolver:
         return out
 
     def _parent(self, level: int) -> str:
-        parts = self._own_key.rsplit(".", level)
+        # A package ``__init__`` is keyed by the package itself, so ``.`` is it.
+        drop = level - 1 if self._is_package else level
+        if drop == 0:
+            return self._own_key
+        parts = self._own_key.rsplit(".", drop)
         return parts[0] if len(parts) > 1 else ""
 
     def _pick(self, candidates: tuple[str, ...]) -> str | None:
