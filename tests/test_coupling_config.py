@@ -220,10 +220,38 @@ class TestStatelessValues:
             'type(self).__setattr__(self, "_{n}", 1)',
             'setattr(self, "_{n}", 1)',
             'self.__dict__["_{n}"] = 1',
+            'self._cache["{n}"] = 1',
+            'self._cache["{n}"] += 1',
+            'del self._cache["{n}"]',
+            "self._cache.update({n}=1)",
+            'self._items.append("{n}")',
+            'self._groups["{n}"].append(1)',
+            'self._grid[0]["{n}"] = 1',
+            "self.__dict__.update(_{n}=1)",
+            'self.__dict__.update({{"_{n}": 1}})',
+            'self.__dict__["_{n}"][0] = 1',
+            'self.__dict__.setdefault("_{n}", 1)',
         ],
     )
     def test_any_still_measures_private_writes(self, write: str) -> None:
         assert _max_lcom(_frozen(write), "any") > 0.0
+
+    def test_public_dunder_dict_write_is_not_private_state(self) -> None:
+        source = (
+            f"{_HEADER}class Bag:\n"
+            '    def left(self) -> None:\n        self.__dict__["left"] = 1\n\n'
+            "    def right(self) -> None:\n        self.__dict__.update(right=2)\n"
+        )
+        assert _max_lcom(source, "any") == 0.0
+
+    def test_reading_private_collection_is_not_a_write(self) -> None:
+        source = (
+            f"{_HEADER}class Reader:\n"
+            "    _table: dict[str, int] = {}\n\n"
+            '    def left(self) -> int:\n        return self._table["a"]\n\n'
+            '    def right(self) -> int:\n        return self._table.get("b", 0)\n'
+        )
+        assert _max_lcom(source, "any") == 0.0
 
     def test_nested_class_state_does_not_block_parent(self) -> None:
         source = (
