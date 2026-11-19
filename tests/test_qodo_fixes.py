@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,9 +15,13 @@ import oo_ratchet.coupling
 import oo_ratchet.oo
 import oo_ratchet.suppression
 from oo_ratchet.coupling.audit import CouplingAudit, CouplingAuditError
+from oo_ratchet.coupling.gitio import GitError as CouplingGitError
+from oo_ratchet.coupling.gitio import GitRepo as CouplingGitRepo
 from oo_ratchet.coupling.imports import ImportResolver
 from oo_ratchet.oo.audit import AuditError, AuditLog
+from oo_ratchet.oo.gitio import GitError as OoGitError
 from oo_ratchet.oo.gitio import GitRepo
+from oo_ratchet.oo.gitio import GitRepo as OoGitRepo
 from oo_ratchet.oo.provenance import ExtractionDetector
 from oo_ratchet.oo.scorer import Scorer
 from oo_ratchet.suppression.patterns import FileSuppressions
@@ -203,3 +208,30 @@ def test_unscorable_single_file_fails_instead_of_viewing_clean(
     assert (
         "src/pkg/thing.py" in (Path(git_sandbox.root) / ".oo-baseline.json").read_text()
     )
+
+
+@pytest.mark.parametrize(
+    ("repo_cls", "error"),
+    [(OoGitRepo, OoGitError), (CouplingGitRepo, CouplingGitError)],
+)
+def test_non_utf8_git_output_raises_instead_of_reading_as_absent(
+    repo_cls: type[OoGitRepo] | type[CouplingGitRepo],
+    error: type[Exception],
+    tmp_path: Path,
+) -> None:
+    emit = "import sys; sys.stdout.buffer.write(b'src/\\xff.py')"
+    with pytest.raises(error, match="not valid UTF-8"):
+        repo_cls._run([sys.executable, "-c", emit], cwd=tmp_path)
+
+
+def test_unscorable_single_file_still_shows_log_and_json(
+    git_sandbox: GitSandbox,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(git_sandbox.root)
+    git_sandbox.write("src/pkg/thing.py", "def broken(:\n")
+    assert oo_ratchet.oo.main(["src/pkg/thing.py", "--log"]) == 0
+    capsys.readouterr()
+    assert oo_ratchet.oo.main(["src/pkg/thing.py", "--json"]) == 1
+    assert '"error"' in capsys.readouterr().out

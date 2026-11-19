@@ -1,5 +1,5 @@
 [project]
-name = "oo-ratchet"
+name = "punt-oo-ratchet"
 version = "0.1.0"
 description = "Must-improve OO quality ratchet for Python repos: OO metrics, coupling/cohesion, and lint-suppression count gates."
 readme = "README.md"
@@ -9,7 +9,9 @@ authors = [{ name = "Punt Labs" }]
 dependencies = []
 
 [project.urls]
+Homepage = "https://github.com/punt-labs/python-oo-rachet"
 Repository = "https://github.com/punt-labs/python-oo-rachet"
+"Bug Tracker" = "https://github.com/punt-labs/python-oo-rachet/issues"
 
 [project.scripts]
 oo-ratchet = "oo_ratchet.__main__:main"
@@ -25,6 +27,9 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.8.0,<0.14"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "oo_ratchet"
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"

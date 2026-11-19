@@ -80,6 +80,9 @@ class GitRepo:
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return None
+        except UnicodeDecodeError as exc:
+            # Never "absent": a None root would bootstrap-pass the gate.
+            raise GitError(f"git output is not valid UTF-8: {exc}") from exc
         if result.returncode != 0:
             return None
         return result.stdout
