@@ -104,3 +104,14 @@ def test_coupling_rebaseline_records_deltas_and_reason(tmp_path: Path) -> None:
     deltas = entry["deltas"]
     assert isinstance(deltas, dict)
     assert deltas["pkg/hub.py"]["efferent_coupling"] == [8.0, 9.0]
+    assert (entry["files_improved"], entry["files_regressed"]) == (0, 1)
+
+
+def test_coupling_rebaseline_counts_improved_files(tmp_path: Path) -> None:
+    fx = GitFixture(tmp_path)
+    _hub(fx, 9)
+    fx.snapshot()
+    _hub(fx, 8)
+    fx.writer().rebaseline(fx.scorer(), allow_ci_write=True, source=None)
+    entry = _last(fx.root / CouplingAudit.FILENAME)
+    assert (entry["files_improved"], entry["files_regressed"]) == (1, 0)

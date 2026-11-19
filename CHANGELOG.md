@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-18
+
+### Fixed
+
+- Coupling `--rebaseline` audit entries now count `files_improved` (a file with a gain and no regression) and `files_regressed`, where before both were always 0.
+
 ## [0.2.2] - 2026-11-18
 
 ### Fixed
