@@ -7,14 +7,12 @@ reason, or the gate blocks forever.
 
 A ledger entry records a *ceiling*: the total suppression count ``file`` is
 allowed to carry, not a delta subtracted from whatever rise shows up next.
-This is the OO ratchet's own ``relax`` semantics (writing the loosened value
-straight into the baseline so it becomes the new floor, per
-``tools/oo_ratchet/writer.py``), reproduced here without trusting a
-committed blob for the *comparison* itself: once the relaxed change merges
-and the base rescan already reflects the file's count at or above the
-ceiling, the entry stops contributing anything -- it cannot become standing
-headroom for a later, unrelated rise in the same file. A rise beyond the
-ceiling is never covered, whether or not the relaxed change has merged yet.
+A ceiling only waives the change that adds it. Once the entry merges, the
+comparison base's own ledger carries the identical entry and it is retired:
+it covers nothing in any later comparison, so a cleanup that lowers the
+file's count is a real floor and suppressions cannot grow back up to the old
+ceiling. A fresh rise needs a fresh ``--relax``, which rewrites the entry.
+A rise beyond the ceiling is never covered, merged or not.
 """
 
 from __future__ import annotations
@@ -45,11 +43,13 @@ class SuppressionRelax:
 
     _path: Path
     _entries: dict[str, RelaxEntry]
+    _retired: set[str]
 
     def __new__(cls, root: Path) -> Self:
         self = super().__new__(cls)
         self._path = root / cls.RELAX_FILE
         self._entries = self._load()
+        self._retired = set()
         return self
 
     @property
@@ -60,19 +60,35 @@ class SuppressionRelax:
     def ceiling(self, fpath: str) -> int | None:
         """Return the recorded ceiling for ``fpath``, or ``None`` if unwaived."""
         entry = self._entries.get(fpath)
-        return entry.ceiling if entry is not None else None
+        if entry is None or fpath in self._retired:
+            return None
+        return entry.ceiling
+
+    def retire_merged(self, base_text: str | None) -> None:
+        """Retire every entry the base commit's ledger already carries unchanged."""
+        merged = self._parse(base_text) if base_text is not None else {}
+        self._retired = {f for f, e in merged.items() if self._entries.get(f) == e}
 
     def add(self, *, file: str, ceiling: int, justify: str) -> None:
         """Record a ceiling for ``file``, overwriting any prior entry."""
         self._entries[file] = RelaxEntry(file, ceiling, justify, self._now())
+        self._retired.discard(file)
         self._save()
 
     def _load(self) -> dict[str, RelaxEntry]:
         if not self._path.exists():
             return {}
         try:
-            raw = json.loads(self._path.read_text())
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            text = self._path.read_text()
+        except (OSError, UnicodeDecodeError) as exc:
+            msg = f"unreadable suppression relax ledger {self._path}: {exc}"
+            raise SuppressionRelaxError(msg) from exc
+        return self._parse(text)
+
+    def _parse(self, text: str) -> dict[str, RelaxEntry]:
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError as exc:
             msg = f"unreadable suppression relax ledger {self._path}: {exc}"
             raise SuppressionRelaxError(msg) from exc
         if not isinstance(raw, list):
@@ -123,4 +139,4 @@ class SuppressionRelax:
 
     @staticmethod
     def _now() -> str:
-        return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")

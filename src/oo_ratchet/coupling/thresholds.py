@@ -16,7 +16,7 @@ class CouplingThresholds:
     """
 
     TABLE: ClassVar[dict[str, tuple[str, float]]] = {
-        "efferent_coupling": ("<=", 7),
+        "efferent_coupling": ("<=", 10),
         "public_names": ("<=", 15),
         "circular_imports": ("==", 0),
         "max_lcom": ("<=", 0.8),

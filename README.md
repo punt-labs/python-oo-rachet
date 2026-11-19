@@ -12,7 +12,9 @@ CLI, three gates:
 
 Every gate compares against the baseline committed at the merge base, fails
 closed when the base or baseline cannot be read, and only loosens through
-audited operations (`--relax`, `--rebaseline-files`, `--rebaseline`). The
+audited operations (`--relax`, `--rebaseline-files`, `--rebaseline`). A
+suppressions `--relax` waiver covers only the change that adds it; once it
+merges it is retired, so a later cleanup is a real floor. The
 policy it enforces is
 [`python-oo-adoption.md`](https://github.com/punt-labs/punt-kit/blob/main/lang-rules/python/python-oo-adoption.md)
 in punt-kit; the formal model is [`docs/ratchet.tex`](docs/ratchet.tex).

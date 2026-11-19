@@ -26,7 +26,7 @@ _HUB_CAPS = {"pkg/hub.py": {"efferent_coupling": 20.0}}
 
 def _hub(fx: GitFixture, imports: int) -> None:
     fx.write("pkg/__init__.py", "")
-    for i in range(10):
+    for i in range(13):
         fx.write(f"pkg/m{i}.py", f"{_HEADER}VALUE = {i}\n")
     body = "".join(f"from . import m{i}\n" for i in range(imports))
     fx.write("pkg/hub.py", f"{_HEADER}{body}")
@@ -126,7 +126,7 @@ class TestPathCaps:
         assert not CouplingThresholds.meets("circular_imports", 2, "pkg/hub.py", caps)
 
     def test_per_file_report_honors_cap(self, fx: GitFixture) -> None:
-        _hub(fx, 9)
+        _hub(fx, 12)
         scorer = CouplingScorer(
             fx.root / "pkg", fx.root, CouplingConfig(caps=_HUB_CAPS)
         )
@@ -183,7 +183,7 @@ class TestCappedGrades:
     """The aggregate grade honors per-file caps, so the exit code agrees."""
 
     def test_capped_hub_passes_summary(self, fx: GitFixture) -> None:
-        _hub(fx, 9)
+        _hub(fx, 12)
         capped = CouplingScorer(
             fx.root / "pkg", fx.root, CouplingConfig(caps=_HUB_CAPS)
         )
@@ -270,10 +270,10 @@ class TestCouplingBless:
     """``--rebaseline-files`` is bounded by per-file caps and waives at check."""
 
     def _setup(self, fx: GitFixture) -> str:
-        _hub(fx, 8)
+        _hub(fx, 11)
         fx.snapshot()
         base = fx.commit("base")
-        _hub(fx, 9)
+        _hub(fx, 12)
         return base
 
     def _bless(self, fx: GitFixture, caps: dict[str, dict[str, float]]) -> int:
@@ -292,24 +292,24 @@ class TestCouplingBless:
         assert self._bless(fx, {}) == 1
         entry = CouplingBaseline(fx.root).get("pkg/hub.py")
         assert entry is not None
-        assert entry["efferent_coupling"] == 8.0
+        assert entry["efferent_coupling"] == 11.0
 
     def test_within_path_cap_blessed_and_waived(self, fx: GitFixture) -> None:
         base = self._setup(fx)
         assert self._bless(fx, _HUB_CAPS) == 0
         entry = CouplingBaseline(fx.root).get("pkg/hub.py")
         assert entry is not None
-        assert entry["efferent_coupling"] == 9.0
+        assert entry["efferent_coupling"] == 12.0
         fx.commit("bless")
         outcome = fx.ratchet().check(fx.scorer(), base_ref=base, require_base=True)
         assert outcome.exit_code == 0, outcome.lines
 
     def test_renamed_file_bless_waives_at_check(self, fx: GitFixture) -> None:
-        _hub(fx, 8)
+        _hub(fx, 11)
         fx.snapshot()
         base = fx.commit("base")
         fx.move("pkg/hub.py", "pkg/wiring.py")
-        body = "".join(f"from . import m{i}\n" for i in range(9))
+        body = "".join(f"from . import m{i}\n" for i in range(12))
         fx.write("pkg/wiring.py", f"{_HEADER}{body}")
         caps = {"pkg/wiring.py": {"efferent_coupling": 20.0}}
         scorer = CouplingScorer(fx.root / "pkg", fx.root, CouplingConfig(caps=caps))
@@ -339,7 +339,7 @@ class TestCouplingBless:
         base = self._setup(fx)
         row = CouplingBaseline(fx.root).get("pkg/hub.py")
         assert row is not None
-        fx.write_baseline({"pkg/hub.py": {**row, "efferent_coupling": 9.0}})
+        fx.write_baseline({"pkg/hub.py": {**row, "efferent_coupling": 12.0}})
         scorer = fx.scorer()
         outcome = CouplingBless(fx.root, GitRepo(fx.root)).apply(
             CouplingBaseline.metrics_by_file(scorer.results),
@@ -394,7 +394,7 @@ class TestCouplingBless:
         assert outcome.exit_code == 1
 
     def test_require_base_with_empty_base_baseline_fails(self, fx: GitFixture) -> None:
-        _hub(fx, 8)
+        _hub(fx, 11)
         fx.write_baseline({})
         base = fx.commit("base without rows")
         outcome = CouplingBless(fx.root, GitRepo(fx.root), _HUB_CAPS).apply(

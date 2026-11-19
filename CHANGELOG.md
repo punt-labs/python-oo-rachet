@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+### Changed
+
+- **Behavior change (PL-1141):** a suppression waiver in `.suppression-relax.json` now only waives the change that adds it. Once the entry is on the comparison base (the merge-base, or `HEAD~1` for the post-merge tripwire) unchanged, it is retired and covers nothing. Before, a merged ceiling stayed live, so after a cleanup lowered a file's count, suppressions could grow back up to the old ceiling without a new waiver, and a ledger-only PR could pre-authorize future growth. A new rise in a file with a retired entry needs a fresh `oo-ratchet suppressions --relax FILE --justify ...`, which rewrites the entry. Retired entries can be deleted from the ledger.
+- An unparseable `.suppression-relax.json` on the comparison base now fails the check.
+- **Behavior change:** `module_size` now counts only lines that carry code. Docstrings (module, class and function), comments and blank lines no longer count; before, every non-blank line did. Every module's `module_size` drops (and many modules' `classes_per_module`), so committed `.oo-baseline.json` rows go stale: the OO check fails a touched file whose row no longer matches its score until the row is refreshed. When bumping to 0.3.0, refresh every row once with an audited `oo-ratchet oo SRC --rebaseline-files <every baselined file> --reason "adopt 0.3.0 counting"`; the refresh only lowers values, so nothing is loosened. The 300-line cap now applies to code lines.
+- **Behavior change:** `classes_per_module` no longer counts exception classes (a base of `Exception`/`BaseException`, a name ending in `Error`/`Exception`/`Warning`, or an exception defined earlier in the module), enums (`Enum`, `IntEnum`, `StrEnum`, `Flag`, `IntFlag`, `ReprEnum`) or `@dataclass` classes, alongside the `Protocol`/`TypedDict` it already skipped. `class_to_func_ratio` still counts them. A module of only such classes now has `classes_per_module = 0`, which also makes a new extracted module of that shape eligible for the zero-class extraction carve-out.
+- **Behavior change:** the default `efferent_coupling` limit is 10 (was 7). `__main__.py`'s 15 and `[tool.oo-ratchet.coupling.caps]` overrides are unchanged. This is a deliberate policy loosening in the package default, not an audited per-repo operation: no baseline rows change, and modules with 8-10 internal imports now pass. Adopters whose written rules say 7 (punt-kit's PL-CU-1 and the copies in lux, z-spec and vox) should update them to 10 when they bump, and can drop any cap at or below 10.
+- Suppression waiver timestamps (`added_at`) now carry microseconds, so a re-relax within the same second never matches a merged entry.
+
 ## [0.2.3] - 2026-11-18
 
 ### Fixed
