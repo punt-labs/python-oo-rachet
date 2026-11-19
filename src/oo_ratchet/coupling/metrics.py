@@ -7,6 +7,7 @@ from itertools import combinations
 from typing import Self
 
 from .imports import ImportResolver
+from .private_state import PrivateState
 
 _TYPE_BASES = frozenset({"Protocol", "TypedDict", "BaseModel"})
 
@@ -171,8 +172,8 @@ class ModuleCouplingMetrics:
         if self._is_type_definition(node):
             return True
         if self._stateless_values == "any":
-            return self._stores_no_private_state(node)
-        return self._declares_value_shape(node) and self._is_stateless_value(node)
+            return PrivateState.stores_none(node)
+        return self._declares_value_shape(node) and PrivateState.stores_nothing(node)
 
     @staticmethod
     def _declares_value_shape(node: ast.ClassDef) -> bool:
@@ -197,131 +198,6 @@ class ModuleCouplingMetrics:
     @staticmethod
     def _is_slots(target: ast.expr) -> bool:
         return isinstance(target, ast.Name) and target.id == "__slots__"
-
-    @staticmethod
-    def _is_stateless_value(node: ast.ClassDef) -> bool:
-        """Return True when the class never stores instance state in its own AST.
-
-        Applied only to a marker (``__slots__ = ()``) or a ``@dataclass``, whose
-        fields the generated ``__init__`` sets; either reads as LCOM 1.0 otherwise. A
-        ``object.__setattr__(self, ...)`` call counts as a store (lux #498).
-        """
-        for sub in ModuleCouplingMetrics._own_nodes(node):
-            if (
-                isinstance(sub, ast.Attribute)
-                and isinstance(sub.value, ast.Name)
-                and sub.value.id == "self"
-                and isinstance(sub.ctx, ast.Store)
-            ):
-                return False
-            if (
-                isinstance(sub, ast.Call)
-                and isinstance(sub.func, ast.Attribute)
-                and sub.func.attr == "__setattr__"
-                and sub.args
-                and isinstance(sub.args[0], ast.Name)
-                and sub.args[0].id == "self"
-            ):
-                return False
-        return True
-
-    @classmethod
-    def _stores_no_private_state(cls, node: ast.ClassDef) -> bool:
-        """Return True when the class never writes a private ``self._*`` attr.
-
-        A write through ``object``/``super()``/``type(self)`` ``.__setattr__``
-        (the frozen-class idiom) counts as a store too (lux #498).
-        """
-        return not any(cls._writes_private_state(n) for n in cls._own_nodes(node))
-
-    @staticmethod
-    def _own_nodes(node: ast.ClassDef) -> list[ast.AST]:
-        """Return the class's AST nodes, not descending into nested classes."""
-        out: list[ast.AST] = []
-        stack: list[ast.AST] = list(node.body)
-        while stack:
-            sub = stack.pop()
-            out.append(sub)
-            if not isinstance(sub, ast.ClassDef):
-                stack.extend(ast.iter_child_nodes(sub))
-        return out
-
-    @classmethod
-    def _writes_private_state(cls, sub: ast.AST) -> bool:
-        if isinstance(sub, ast.Call):
-            return cls._is_private_setattr(sub)
-        if isinstance(sub, ast.Subscript):
-            return cls._is_private_dict_store(sub)
-        return (
-            isinstance(sub, ast.Attribute)
-            and isinstance(sub.ctx, ast.Store)
-            and cls._is_self(sub.value)
-            and sub.attr.startswith("_")
-        )
-
-    @classmethod
-    def _is_private_dict_store(cls, sub: ast.Subscript) -> bool:
-        """Return True for ``self.__dict__["_x"] = ...``."""
-        owner = sub.value
-        return (
-            isinstance(sub.ctx, ast.Store)
-            and isinstance(owner, ast.Attribute)
-            and owner.attr == "__dict__"
-            and cls._is_self(owner.value)
-            and cls._is_private_name(sub.slice)
-        )
-
-    @staticmethod
-    def _is_self(node: ast.expr) -> bool:
-        return isinstance(node, ast.Name) and node.id == "self"
-
-    @staticmethod
-    def _is_private_name(node: ast.expr) -> bool:
-        return isinstance(node, ast.Constant) and str(node.value).startswith("_")
-
-    @classmethod
-    def _is_private_setattr(cls, call: ast.Call) -> bool:
-        """Return True for a ``setattr``/``__setattr__`` write of a ``_x`` attr.
-
-        Unbound forms (``setattr(self, ...)``, ``object``/``type(self)``
-        ``.__setattr__(self, ...)``) take ``self`` first; bound forms
-        (``super()``/``self`` ``.__setattr__("_x", v)``) take the name first.
-        """
-        func = call.func
-        if isinstance(func, ast.Name):
-            return func.id == "setattr" and cls._self_private_args(call.args)
-        if not isinstance(func, ast.Attribute) or func.attr != "__setattr__":
-            return False
-        if cls._is_bound_receiver(func.value):
-            return bool(call.args) and cls._is_private_name(call.args[0])
-        return cls._is_unbound_receiver(func.value) and cls._self_private_args(
-            call.args
-        )
-
-    @classmethod
-    def _self_private_args(cls, args: list[ast.expr]) -> bool:
-        return (
-            len(args) >= 2 and cls._is_self(args[0]) and cls._is_private_name(args[1])
-        )
-
-    @classmethod
-    def _is_bound_receiver(cls, receiver: ast.expr) -> bool:
-        """Return True for ``self`` or ``super()``."""
-        return cls._is_self(receiver) or cls._is_call_to(receiver, "super")
-
-    @classmethod
-    def _is_unbound_receiver(cls, receiver: ast.expr) -> bool:
-        """Return True for ``object`` or ``type(...)``."""
-        is_object = isinstance(receiver, ast.Name) and receiver.id == "object"
-        return is_object or cls._is_call_to(receiver, "type")
-
-    @staticmethod
-    def _is_call_to(node: ast.expr, name: str) -> bool:
-        return (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == name
-        )
 
     @staticmethod
     def _is_type_definition(node: ast.ClassDef) -> bool:

@@ -1,0 +1,172 @@
+"""Detect whether a class body writes private (``self._x``) instance state.
+
+Backs the coupling gate's ``stateless-values = "any"`` LCOM exemption: a class
+that never writes private state carries no instance cohesion to measure.
+"""
+
+from __future__ import annotations
+
+import ast
+
+_MUTATORS = frozenset(
+    {
+        "add",
+        "append",
+        "appendleft",
+        "clear",
+        "discard",
+        "extend",
+        "insert",
+        "pop",
+        "popitem",
+        "remove",
+        "setdefault",
+        "sort",
+        "update",
+    }
+)
+
+
+class PrivateState:
+    """Static AST queries for private instance-state writes in a class."""
+
+    @classmethod
+    def stores_none(cls, node: ast.ClassDef) -> bool:
+        """Return True when the class never writes a private ``self._*`` attr.
+
+        A write through ``object``/``super()``/``type(self)`` ``.__setattr__``
+        (the frozen-class idiom) counts as a store too (lux #498).
+        """
+        return not any(cls._writes_private_state(n) for n in cls.own_nodes(node))
+
+    @staticmethod
+    def own_nodes(node: ast.ClassDef) -> list[ast.AST]:
+        """Return the class's AST nodes, not descending into nested classes."""
+        out: list[ast.AST] = []
+        stack: list[ast.AST] = list(node.body)
+        while stack:
+            sub = stack.pop()
+            out.append(sub)
+            if not isinstance(sub, ast.ClassDef):
+                stack.extend(ast.iter_child_nodes(sub))
+        return out
+
+    @classmethod
+    def _writes_private_state(cls, sub: ast.AST) -> bool:
+        if isinstance(sub, ast.Call):
+            return cls._is_private_setattr(sub) or cls._mutates_private(sub)
+        if isinstance(sub, ast.Subscript):
+            return cls._is_private_dict_store(sub) or (
+                not isinstance(sub.ctx, ast.Load) and cls._is_private_attr(sub.value)
+            )
+        return (
+            isinstance(sub, ast.Attribute)
+            and isinstance(sub.ctx, ast.Store)
+            and cls._is_self(sub.value)
+            and sub.attr.startswith("_")
+        )
+
+    @classmethod
+    def _is_private_dict_store(cls, sub: ast.Subscript) -> bool:
+        """Return True for ``self.__dict__["_x"] = ...``."""
+        owner = sub.value
+        return (
+            isinstance(sub.ctx, ast.Store)
+            and isinstance(owner, ast.Attribute)
+            and owner.attr == "__dict__"
+            and cls._is_self(owner.value)
+            and cls._is_private_name(sub.slice)
+        )
+
+    @classmethod
+    def _mutates_private(cls, call: ast.Call) -> bool:
+        """Return True for ``self._x.append(...)`` and other in-place mutators."""
+        func = call.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr in _MUTATORS
+            and cls._is_private_attr(func.value)
+        )
+
+    @classmethod
+    def _is_private_attr(cls, node: ast.expr) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and cls._is_self(node.value)
+            and node.attr.startswith("_")
+        )
+
+    @staticmethod
+    def _is_self(node: ast.expr) -> bool:
+        return isinstance(node, ast.Name) and node.id == "self"
+
+    @staticmethod
+    def _is_private_name(node: ast.expr) -> bool:
+        return isinstance(node, ast.Constant) and str(node.value).startswith("_")
+
+    @classmethod
+    def _is_private_setattr(cls, call: ast.Call) -> bool:
+        """Return True for a ``setattr``/``__setattr__`` write of a ``_x`` attr.
+
+        Unbound forms (``setattr(self, ...)``, ``object``/``type(self)``
+        ``.__setattr__(self, ...)``) take ``self`` first; bound forms
+        (``super()``/``self`` ``.__setattr__("_x", v)``) take the name first.
+        """
+        func = call.func
+        if isinstance(func, ast.Name):
+            return func.id == "setattr" and cls._self_private_args(call.args)
+        if not isinstance(func, ast.Attribute) or func.attr != "__setattr__":
+            return False
+        if cls._is_bound_receiver(func.value):
+            return bool(call.args) and cls._is_private_name(call.args[0])
+        return cls._is_unbound_receiver(func.value) and cls._self_private_args(
+            call.args
+        )
+
+    @classmethod
+    def _self_private_args(cls, args: list[ast.expr]) -> bool:
+        return (
+            len(args) >= 2 and cls._is_self(args[0]) and cls._is_private_name(args[1])
+        )
+
+    @classmethod
+    def _is_bound_receiver(cls, receiver: ast.expr) -> bool:
+        """Return True for ``self`` or ``super()``."""
+        return cls._is_self(receiver) or cls._is_call_to(receiver, "super")
+
+    @classmethod
+    def _is_unbound_receiver(cls, receiver: ast.expr) -> bool:
+        """Return True for ``object`` or ``type(...)``."""
+        is_object = isinstance(receiver, ast.Name) and receiver.id == "object"
+        return is_object or cls._is_call_to(receiver, "type")
+
+    @staticmethod
+    def _is_call_to(node: ast.expr, name: str) -> bool:
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == name
+        )
+
+    @classmethod
+    def stores_nothing(cls, node: ast.ClassDef) -> bool:
+        """Return True when the class never stores instance state in its own AST.
+
+        Applied only to a marker (``__slots__ = ()``) or a ``@dataclass``, whose
+        fields the generated ``__init__`` sets; either reads as LCOM 1.0 otherwise. A
+        ``object.__setattr__(self, ...)`` call counts as a store (lux #498).
+        """
+        return not any(cls._stores_self(sub) for sub in cls.own_nodes(node))
+
+    @classmethod
+    def _stores_self(cls, sub: ast.AST) -> bool:
+        if isinstance(sub, ast.Attribute):
+            return isinstance(sub.ctx, ast.Store) and cls._is_self(sub.value)
+        if not isinstance(sub, ast.Call) or not sub.args:
+            return False
+        func = sub.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr == "__setattr__"
+            and cls._is_self(sub.args[0])
+        )
