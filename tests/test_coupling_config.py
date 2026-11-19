@@ -232,6 +232,14 @@ class TestStatelessValues:
     def test_any_still_measures_private_writes(self, write: str) -> None:
         assert _max_lcom(_frozen(write), "any") > 0.0
 
+    def test_public_dunder_dict_write_is_not_private_state(self) -> None:
+        source = (
+            f"{_HEADER}class Bag:\n"
+            '    def left(self) -> None:\n        self.__dict__["left"] = 1\n\n'
+            "    def right(self) -> None:\n        self.__dict__.update(right=2)\n"
+        )
+        assert _max_lcom(source, "any") == 0.0
+
     def test_reading_private_collection_is_not_a_write(self) -> None:
         source = (
             f"{_HEADER}class Reader:\n"

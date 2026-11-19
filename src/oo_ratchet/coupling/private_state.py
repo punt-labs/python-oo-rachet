@@ -97,6 +97,7 @@ class PrivateState:
             isinstance(node, ast.Attribute)
             and cls._is_self(node.value)
             and node.attr.startswith("_")
+            and not node.attr.endswith("__")
         )
 
     @staticmethod
