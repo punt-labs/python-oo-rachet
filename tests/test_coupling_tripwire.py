@@ -51,11 +51,6 @@ class TestThresholds:
         assert not CouplingThresholds.strictly_better("efferent_coupling", 3, 3)
 
 
-def _rebaseline() -> int:
-    """Seat the in-tree coupling baseline, tolerating the CI write guard."""
-    return oo_ratchet.coupling.main(["src/pkg", "--rebaseline", "--allow-ci-write"])
-
-
 def _seat_package(sandbox: GitSandbox, hub_imports: str) -> None:
     """Write a 4-module package with hub importing ``hub_imports`` and seat it."""
     sandbox.write("src/pkg/a.py", "x = 1\n")
