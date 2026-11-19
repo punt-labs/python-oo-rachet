@@ -166,14 +166,15 @@ class ModuleCouplingMetrics:
     def _is_exempt(self, node: ast.ClassDef) -> bool:
         """Return True for data shapes and stateless values, which LCOM cannot see.
 
-        ``stateless_values == "any"`` exempts every class that stores no
-        private ``self._*`` state; the default exempts only value shapes.
+        The default exempts value shapes that store no instance state;
+        ``stateless_values == "any"`` also exempts every class that stores no
+        private ``self._*`` state, so it is a superset of the default.
         """
         if self._is_type_definition(node):
             return True
-        if self._stateless_values == "any":
-            return PrivateState.stores_none(node)
-        return self._declares_value_shape(node) and PrivateState.stores_nothing(node)
+        if self._declares_value_shape(node) and PrivateState.stores_nothing(node):
+            return True
+        return self._stateless_values == "any" and PrivateState.stores_none(node)
 
     @staticmethod
     def _declares_value_shape(node: ast.ClassDef) -> bool:

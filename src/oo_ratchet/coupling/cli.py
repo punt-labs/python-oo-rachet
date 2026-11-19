@@ -94,7 +94,9 @@ class Options:
         action.add_argument("--json", action="store_true", help="emit JSON scores")
         parser.add_argument("--justify", default="", help="justification for --relax")
         parser.add_argument(
-            "--reason", default="", help="justification for --rebaseline-files"
+            "--reason",
+            default="",
+            help="justification for --rebaseline-files / --rebaseline",
         )
         parser.add_argument("--base-ref", metavar="REF", help="comparison base commit")
         parser.add_argument(
@@ -182,7 +184,10 @@ class Cli:
             )
         if opts.rebaseline:
             return writer.rebaseline(
-                scorer, allow_ci_write=opts.allow_ci_write, source=opts.source
+                scorer,
+                allow_ci_write=opts.allow_ci_write,
+                source=opts.source,
+                reason=opts.reason,
             )
         if opts.relax is not None:
             return writer.relax(

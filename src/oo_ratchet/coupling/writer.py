@@ -76,29 +76,50 @@ class CouplingWriter:
         )
 
     def rebaseline(
-        self, scorer: CouplingScorer, *, allow_ci_write: bool, source: str | None
+        self,
+        scorer: CouplingScorer,
+        *,
+        allow_ci_write: bool,
+        source: str | None,
+        reason: str = "",
     ) -> Outcome:
-        """Reset the coupling baseline unconditionally to current scores."""
+        """Reset the coupling baseline to current scores, auditing every change."""
         blocked = self._guard(allow_ci_write=allow_ci_write)
         if blocked is not None:
             return blocked
         current = CouplingBaseline.metrics_by_file(scorer.results)
         gone = sorted(set(self._baseline.entries) - set(current))
+        deltas = self._changes(current)
         self._baseline.save(current)
         self._audit.append(
             files_scored=len(current),
             files_improved=0,
             files_regressed=0,
             verdict="rebaseline",
-            deltas={},
+            deltas=deltas,
             removed=gone,
             commit=self._git.short_head(),
             source=source,
+            reason=reason.strip() or None,
         )
         return Outcome.passed(
             f"\nBaseline reset: {self._baseline.path}",
             f"  files scored: {len(current)}",
         )
+
+    def _changes(
+        self, current: dict[str, dict[str, float]]
+    ) -> dict[str, dict[str, list[float]]]:
+        """Return ``{file: {metric: [old, new]}}`` for every changed or new metric."""
+        changes: dict[str, dict[str, list[float]]] = {}
+        for path, entry in current.items():
+            old = self._baseline.entries.get(path, {})
+            diff = {
+                m: [old.get(m, 0.0), v] for m, v in entry.items() if old.get(m) != v
+            }
+            if diff:
+                changes[path] = diff
+        return changes
 
     def relax(
         self,

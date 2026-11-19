@@ -55,6 +55,7 @@ class CouplingAudit:
         source: str | None = None,
         reason: str | None = None,
         removed: list[str] | None = None,
+        improved: dict[str, dict[str, list[float]]] | None = None,
     ) -> None:
         """Append one verdict entry, recording its source (PR/bead ref).
 
@@ -74,6 +75,8 @@ class CouplingAudit:
         }
         if removed:
             entry["removed"] = removed
+        if improved:
+            entry["improved"] = improved
         with self._path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 

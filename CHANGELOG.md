@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-18
+
+### Fixed
+
+- `stateless-values = "any"` is a superset of the default exemptions again: a `@dataclass` or `__slots__ = ()` marker that stores no instance state stays exempt even when it mutates host collections (regressed in 0.2.1).
+- `--rebaseline-files` (OO and coupling) records the metrics it improved in a new audit field, `improved`, as well as the regressions it waives in `deltas`. `improved` is audit-only and never read back as a waiver.
+- Coupling `--rebaseline` records every changed metric as `deltas` and saves `--reason` in its audit entry.
+
 ## [0.2.1] - 2026-11-18
 
 ### Fixed
