@@ -96,6 +96,9 @@ def test_single_file_target_records_an_error_row(tmp_path: Path) -> None:
         ("# pylint: skip-file\nx = 1\n", "file_level", 1),
         ("x = 1\n# pylint: disable=invalid-name\ny = 2\n", "file_level", 1),
         ("# pyright: reportAny=false\nx = 1\n", "file_level", 1),
+        ("x = 1  # type: ignore  # noqa  # ruff: noqa\n", "type_ignore", 1),
+        ("x = 1  # type: ignore  # noqa  # ruff: noqa\n", "noqa", 1),
+        ("x = 1  # type: ignore  # noqa  # ruff: noqa\n", "file_level", 1),
     ],
 )
 def test_file_level_suppressions_are_counted(

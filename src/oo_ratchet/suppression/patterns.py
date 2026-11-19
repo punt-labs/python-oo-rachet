@@ -26,6 +26,7 @@ PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 PATTERN_NAMES: tuple[str, ...] = tuple(name for name, _ in PATTERNS)
+_INLINE_PATTERNS = tuple(p for p in PATTERNS if p[0] != "file_level")
 
 CATEGORIES: tuple[str, ...] = (*PATTERN_NAMES, "per_file_ignores")
 
@@ -135,8 +136,8 @@ class FileSuppressions:
                 own_line and _PYLINT_DISABLE_RE.search(comment_text)
             ):
                 self._counts["file_level"] += 1
-            elif lineno in code_lines:
-                for name, pattern in PATTERNS:
+            if lineno in code_lines:
+                for name, pattern in _INLINE_PATTERNS:
                     if pattern.search(comment_text):
                         self._counts[name] += 1
 
