@@ -214,3 +214,16 @@ def test_non_utf8_git_output_is_unresolvable_not_a_crash(
 ) -> None:
     emit = "import sys; sys.stdout.buffer.write(b'src/\\xff.py')"
     assert repo_cls._run([sys.executable, "-c", emit], cwd=tmp_path) is None
+
+
+def test_unscorable_single_file_still_shows_log_and_json(
+    git_sandbox: GitSandbox,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(git_sandbox.root)
+    git_sandbox.write("src/pkg/thing.py", "def broken(:\n")
+    assert oo_ratchet.oo.main(["src/pkg/thing.py", "--log"]) == 0
+    capsys.readouterr()
+    oo_ratchet.oo.main(["src/pkg/thing.py", "--json"])
+    assert '"error"' in capsys.readouterr().out

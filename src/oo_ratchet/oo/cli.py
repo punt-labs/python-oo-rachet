@@ -184,9 +184,15 @@ class Cli:
         return outcome.exit_code
 
     def _unscorable(self, scorer: Scorer) -> Outcome | None:
-        """Fail a single-file target that only produced an error row."""
-        if self._opts.src.is_file() and scorer.parse_errors:
-            return Outcome.failed(f"FAIL: cannot score {self._opts.src}")
+        """Fail a single-file target that only produced an error row.
+
+        ``--log`` needs no score and ``--json`` reports the error row itself.
+        """
+        opts = self._opts
+        if opts.log or opts.json:
+            return None
+        if opts.src.is_file() and scorer.parse_errors:
+            return Outcome.failed(f"FAIL: cannot score {opts.src}")
         return None
 
     def _run_action(self, scorer: Scorer) -> Outcome | None:
