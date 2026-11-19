@@ -13,7 +13,8 @@ _TYPE_IGNORE_RE = re.compile(r"#\s*type:\s*ignore\b")
 _PYLINT_DISABLE_RE = re.compile(r"#\s*pylint:\s*disable\b")
 _PYRIGHT_IGNORE_RE = re.compile(r"#\s*pyright:\s*ignore\b")
 _FILE_LEVEL_RE = re.compile(
-    r"#\s*(?:ruff:\s*noqa|flake8:\s*noqa|mypy:\s*ignore-errors|pyright:\s*basic)\b"
+    r"#\s*(?:ruff:\s*noqa|flake8:\s*noqa|mypy:\s*ignore-errors|pyright:\s*basic"
+    r"|pylint:\s*skip-file|pyright:\s*report\w+\s*=\s*false)\b"
 )
 
 PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -89,7 +90,8 @@ class FileSuppressions:
         word ``noqa``).
         """
         try:
-            tokens = list(tokenize.tokenize(io.BytesIO(source.encode()).readline))
+            # Tokenize the decoded text: re-encoding would clash with its cookie.
+            tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
         except (tokenize.TokenError, SyntaxError, IndentationError):
             # Unparseable source must fail CLOSED, never degrade to zero: the
             # suppression ratchet compares this re-scanned worktree total against
@@ -128,7 +130,10 @@ class FileSuppressions:
         first_code = min(code_lines) if code_lines else None
         for lineno, comment_text in comments_by_line.items():
             before_code = first_code is None or lineno < first_code
-            if self._is_file_level(comment_text, before_code=before_code):
+            own_line = lineno not in code_lines
+            if self._is_file_level(comment_text, before_code=before_code) or (
+                own_line and _PYLINT_DISABLE_RE.search(comment_text)
+            ):
                 self._counts["file_level"] += 1
             elif lineno in code_lines:
                 for name, pattern in PATTERNS:

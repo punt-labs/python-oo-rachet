@@ -104,7 +104,9 @@ class ImportResolver:
 
     def _parent(self, level: int) -> str:
         # A package ``__init__`` is keyed by the package itself, so ``.`` is it.
-        drop = level - 1 if self._is_package else level
+        # The root ``__init__`` is keyed "__init__", not by a package name.
+        nested = self._is_package and self._own_key != "__init__"
+        drop = level - 1 if nested else level
         if drop == 0:
             return self._own_key
         parts = self._own_key.rsplit(".", drop)

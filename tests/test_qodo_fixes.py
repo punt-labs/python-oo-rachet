@@ -93,6 +93,9 @@ def test_single_file_target_records_an_error_row(tmp_path: Path) -> None:
         ('"""Doc."""\n# mypy: ignore-errors\n', "file_level", 1),
         ("x = 1  # type: ignore\n", "file_level", 0),
         ("x = 1  # type: ignore\n", "type_ignore", 1),
+        ("# pylint: skip-file\nx = 1\n", "file_level", 1),
+        ("x = 1\n# pylint: disable=invalid-name\ny = 2\n", "file_level", 1),
+        ("# pyright: reportAny=false\nx = 1\n", "file_level", 1),
     ],
 )
 def test_file_level_suppressions_are_counted(
@@ -166,3 +169,34 @@ def test_suppression_rescan_of_dot_target_keys_like_the_live_scan(
     rescanned = BaseRescanner(SuppressionGit(Path()), Path()).rescan(base, Path())
     assert rescanned is not None
     assert set(rescanned.by_file) == set(Scanner(Path(), Path()).report.by_file)
+
+
+def test_root_init_relative_import_keeps_the_submodule_edge() -> None:
+    modules = frozenset({"__init__", "sub", "sub.mod"})
+    resolver = ImportResolver("__init__", modules, "pkg", is_package=True)
+    tree = ast.parse("from .sub.mod import X\n")
+    assert resolver.internal_imports(tree) == {"sub.mod"}
+
+
+def test_scanner_counts_non_latin_cookie_files(tmp_path: Path) -> None:
+    src = tmp_path / "sjis.py"
+    src.write_bytes(
+        "# -*- coding: shift_jis -*-\nx = '\u8868'  # noqa\n".encode("shift_jis")
+    )
+    counts = Scanner(src, tmp_path).report
+    assert counts.total == 1
+
+
+def test_unscorable_single_file_fails_instead_of_viewing_clean(
+    git_sandbox: GitSandbox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(git_sandbox.root)
+    git_sandbox.write("src/pkg/thing.py", _SRC)
+    assert oo_ratchet.oo.main(["src/pkg", "--rebaseline", "--allow-ci-write"]) == 0
+    git_sandbox.write("src/pkg/thing.py", "def broken(:\n")
+    target = "src/pkg/thing.py"
+    assert oo_ratchet.oo.main([target]) == 1
+    assert oo_ratchet.oo.main([target, "--rebaseline", "--allow-ci-write"]) == 1
+    assert (
+        "src/pkg/thing.py" in (Path(git_sandbox.root) / ".oo-baseline.json").read_text()
+    )
