@@ -47,6 +47,7 @@ class Ratchet:
         base_ref: str | None,
         require_base: bool,
         allow_no_improvement: bool = False,
+        tripwire: bool = False,
     ) -> Outcome:
         """Compare touched files at HEAD against the base baseline.
 
@@ -60,7 +61,7 @@ class Ratchet:
             return self._no_base(require_base=require_base)
         base_baseline = self._git.show_baseline(base)
         if base_baseline is None:
-            return self._absent_base_baseline()
+            return self._absent_base_baseline(tripwire=tripwire)
         if not base_baseline and require_base:
             return self._empty_baseline()
         # An empty {} baseline without --require-base flows through below: every
@@ -200,7 +201,7 @@ class Ratchet:
             "with an in-tree baseline present; fetch origin/main or pass --base-ref"
         )
 
-    def _absent_base_baseline(self) -> Outcome:
+    def _absent_base_baseline(self, *, tripwire: bool = False) -> Outcome:
         """Decide the verdict when the base commit has no baseline blob.
 
         Genuine first-adoption requires the ``origin/main`` tip to be resolvable
@@ -210,7 +211,16 @@ class Ratchet:
           adoption and would launder a regression past the empty base;
         - the tip is unresolvable (unfetched/stale) *and* an in-tree baseline
           exists: we cannot confirm first-adoption, so don't assume it.
+
+        Under ``tripwire`` (post-merge ``push:[main]``, base ``HEAD~1``) the
+        checkout is main itself, so an absent base baseline is the adoption
+        merge and bootstrap-passes, as in the coupling ratchet.
         """
+        if tripwire:
+            return Outcome.passed(
+                "Base predates baseline adoption on push tripwire -- "
+                "one-time bootstrap pass"
+            )
         tip = self._git.resolve_ref("origin/main")
         if tip is None:
             if self._baseline.exists:

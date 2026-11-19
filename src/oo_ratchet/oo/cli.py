@@ -36,6 +36,7 @@ class Options:
     base_ref: str | None
     require_base: bool
     allow_no_improvement: bool
+    tripwire: bool
     allow_ci_write: bool
     source: str | None
 
@@ -61,6 +62,7 @@ class Options:
             base_ref=ns.base_ref,
             require_base=bool(ns.require_base),
             allow_no_improvement=bool(ns.allow_no_improvement),
+            tripwire=bool(ns.tripwire),
             allow_ci_write=bool(ns.allow_ci_write),
             source=ns.source,
         )
@@ -107,6 +109,12 @@ class Options:
         parser.add_argument("--base-ref", metavar="REF", help="comparison base commit")
         parser.add_argument(
             "--require-base", action="store_true", help="fail if base unresolvable"
+        )
+        parser.add_argument(
+            "--tripwire",
+            action="store_true",
+            help="post-merge push:[main] mode: an absent base baseline is the "
+            "one-time adoption merge and bootstrap-passes",
         )
         # Waive only the must-improve gate (mechanical version-bump PRs improve
         # no metric); regressions and baseline lock-in are still enforced.
@@ -185,6 +193,7 @@ class Cli:
                 base_ref=opts.base_ref,
                 require_base=opts.require_base,
                 allow_no_improvement=opts.allow_no_improvement,
+                tripwire=opts.tripwire,
             )
         if opts.rebaseline:
             return writer.rebaseline(

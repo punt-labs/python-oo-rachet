@@ -30,6 +30,7 @@ class Options:
     base_ref: str | None
     require_base: bool
     allow_ci_write: bool
+    tripwire: bool
 
     @classmethod
     def parse(cls, argv: list[str] | None = None) -> Self:
@@ -46,6 +47,7 @@ class Options:
             base_ref=ns.base_ref,
             require_base=bool(ns.require_base),
             allow_ci_write=bool(ns.allow_ci_write),
+            tripwire=bool(ns.tripwire),
         )
 
     @staticmethod
@@ -68,6 +70,12 @@ class Options:
         )
         parser.add_argument(
             "--allow-ci-write", action="store_true", help="permit writes under CI"
+        )
+        parser.add_argument(
+            "--tripwire",
+            action="store_true",
+            help="post-merge push:[main] mode: an absent base baseline is the "
+            "one-time adoption merge and bootstrap-passes",
         )
         return parser
 
@@ -120,6 +128,7 @@ class Cli:
                 target=opts.src,
                 base_ref=opts.base_ref,
                 require_base=opts.require_base,
+                tripwire=opts.tripwire,
             )
         if opts.update:
             return baseline.update(report, allow_ci_write=opts.allow_ci_write)

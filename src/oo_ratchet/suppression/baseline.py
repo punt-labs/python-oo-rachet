@@ -57,6 +57,7 @@ class SuppressionBaseline:
         target: Path,
         base_ref: str | None,
         require_base: bool,
+        tripwire: bool = False,
     ) -> Outcome:
         """Compare current counts against a live rescan of ``target`` at the base."""
         base = self._git.resolve_base(base_ref)
@@ -64,7 +65,7 @@ class SuppressionBaseline:
             return self._no_base(require_base=require_base)
         base_report = self._rescanner.rescan(base, target)
         if base_report is None:
-            return self._absent_base(target)
+            return self._absent_base(target, tripwire=tripwire)
         return self._compare(report, base_report)
 
     def _no_base(self, *, require_base: bool) -> Outcome:
@@ -89,15 +90,22 @@ class SuppressionBaseline:
             "with an in-tree baseline present; fetch origin/main or pass --base-ref"
         )
 
-    def _absent_base(self, target: Path) -> Outcome:
+    def _absent_base(self, target: Path, *, tripwire: bool = False) -> Outcome:
         """Decide the verdict when ``target`` does not exist at the base ref.
 
         Matches the OO and coupling ratchets' ``_absent_base_baseline`` exactly
         (no ``require_base`` param): fail closed unconditionally when the
         ``origin/main`` tip is unresolvable with an in-tree baseline present, or
         when the tip already carries ``target`` (the branch forked before the
-        scanned source tree existed -- rebase, don't bootstrap).
+        scanned source tree existed -- rebase, don't bootstrap). Under
+        ``tripwire`` (post-merge ``push:[main]``) it is the adoption merge and
+        bootstrap-passes.
         """
+        if tripwire:
+            return Outcome.passed(
+                "Base predates baseline adoption on push tripwire -- "
+                "one-time bootstrap pass"
+            )
         tip = self._git.resolve_ref("origin/main")
         if tip is None:
             if self.has_baseline:
