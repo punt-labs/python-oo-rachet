@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Self
 
 from .audit import CouplingAudit
 from .baseline import CouplingBaseline
+from .delta import BaselineDelta
 from .gitio import GitRepo
 from .outcome import Outcome
 from .thresholds import CouplingThresholds
@@ -89,12 +90,13 @@ class CouplingWriter:
             return blocked
         current = CouplingBaseline.metrics_by_file(scorer.results)
         gone = sorted(set(self._baseline.entries) - set(current))
-        deltas = self._changes(current)
+        deltas = BaselineDelta.changes(self._baseline.entries, current)
+        improved, regressed = BaselineDelta.tally(self._baseline.entries, deltas)
         self._baseline.save(current)
         self._audit.append(
             files_scored=len(current),
-            files_improved=0,
-            files_regressed=0,
+            files_improved=improved,
+            files_regressed=regressed,
             verdict="rebaseline",
             deltas=deltas,
             removed=gone,
@@ -106,20 +108,6 @@ class CouplingWriter:
             f"\nBaseline reset: {self._baseline.path}",
             f"  files scored: {len(current)}",
         )
-
-    def _changes(
-        self, current: dict[str, dict[str, float]]
-    ) -> dict[str, dict[str, list[float]]]:
-        """Return ``{file: {metric: [old, new]}}`` for every changed or new metric."""
-        changes: dict[str, dict[str, list[float]]] = {}
-        for path, entry in current.items():
-            old = self._baseline.entries.get(path, {})
-            diff = {
-                m: [old.get(m, 0.0), v] for m, v in entry.items() if old.get(m) != v
-            }
-            if diff:
-                changes[path] = diff
-        return changes
 
     def relax(
         self,
