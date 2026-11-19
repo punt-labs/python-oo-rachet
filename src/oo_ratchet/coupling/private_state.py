@@ -85,13 +85,41 @@ class PrivateState:
         return (
             isinstance(func, ast.Attribute)
             and func.attr in _MUTATORS
-            and cls._is_private_attr(func.value)
+            and (
+                cls._is_private_attr(func.value)
+                or (cls._is_self_dict(func.value) and cls._has_private_key(call))
+            )
         )
+
+    @classmethod
+    def _is_self_dict(cls, node: ast.expr) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "__dict__"
+            and cls._is_self(node.value)
+        )
+
+    @classmethod
+    def _has_private_key(cls, call: ast.Call) -> bool:
+        """Return True when a ``self.__dict__`` mutator may touch a ``_x`` key."""
+        if any(kw.arg is None or kw.arg.startswith("_") for kw in call.keywords):
+            return True
+        return any(cls._may_be_private_key(arg) for arg in call.args[:1])
+
+    @classmethod
+    def _may_be_private_key(cls, arg: ast.expr) -> bool:
+        if isinstance(arg, ast.Constant):
+            return cls._is_private_name(arg)
+        if isinstance(arg, ast.Dict):
+            return any(k is None or cls._is_private_name(k) for k in arg.keys)
+        return True
 
     @classmethod
     def _is_private_attr(cls, node: ast.expr) -> bool:
         """Return True for ``self._x``, also through ``[k]`` (``self._x[k][j]``)."""
         while isinstance(node, ast.Subscript):
+            if cls._is_self_dict(node.value):
+                return cls._is_private_name(node.slice)
             node = node.value
         return (
             isinstance(node, ast.Attribute)

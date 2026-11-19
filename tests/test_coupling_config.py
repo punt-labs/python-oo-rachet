@@ -227,6 +227,10 @@ class TestStatelessValues:
             'self._items.append("{n}")',
             'self._groups["{n}"].append(1)',
             'self._grid[0]["{n}"] = 1',
+            "self.__dict__.update(_{n}=1)",
+            'self.__dict__.update({{"_{n}": 1}})',
+            'self.__dict__["_{n}"][0] = 1',
+            'self.__dict__.setdefault("_{n}", 1)',
         ],
     )
     def test_any_still_measures_private_writes(self, write: str) -> None:
