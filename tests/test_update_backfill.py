@@ -66,6 +66,16 @@ def test_update_backfills_missing_rows(
     output = capsys.readouterr().out
     assert "  backfilled: pkg/b.py" in output
     assert "  backfilled: pkg/new.py" not in output
+    audit_path = git_sandbox.root / baseline.replace("baseline.json", "audit.jsonl")
+    audit = json.loads(audit_path.read_text().splitlines()[-1])
+    assert audit["backfilled"] == ["pkg/b.py"]
+    assert "pkg/b.py" not in audit["deltas"]
+    expected_improved = 1 if scenario == "branch" else 0
+    assert audit["files_improved"] == expected_improved
+    assert f"files improved: {expected_improved}" in output
+    if scenario == "branch":
+        assert "pkg/new.py" in audit["deltas"]
+        assert all(old == 0.0 for old, _ in audit["deltas"]["pkg/new.py"].values())
 
 
 @pytest.mark.parametrize("run", [coupling_main, oo_main])
@@ -99,3 +109,13 @@ def test_update_backfill_reporting_exclusions(
         assert "  backfilled: pkg/renamed.py" not in output
     else:
         assert "backfilled:" not in output
+    baseline = (
+        ".oo-coupling-baseline.json" if run is coupling_main else ".oo-baseline.json"
+    )
+    audit_path = git_sandbox.root / baseline.replace("baseline.json", "audit.jsonl")
+    audit = json.loads(audit_path.read_text().splitlines()[-1])
+    if scenario == "bootstrap":
+        assert "backfilled" not in audit
+    else:
+        assert audit["backfilled"] == ["pkg/b.py"]
+        assert "pkg/b.py" not in audit["deltas"]

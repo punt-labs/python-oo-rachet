@@ -50,7 +50,7 @@ class BaselineWriter:
         allow_ci_write: bool,
         source: str | None,
     ) -> Outcome:
-        """Update diff-scoped entries and backfill missing rows (never loosens).
+        """Update baseline entries for files in ``base..HEAD`` (never loosens).
 
         Mirrors ``check``'s fail-closed contract: on an unresolvable base,
         scoped update refuses rather than silently sweeping the whole tree.
@@ -67,8 +67,6 @@ class BaselineWriter:
         if blocked is not None:
             return blocked
         current = Baseline.metrics_by_file(scorer.results)
-        missing = frozenset(current.keys() - self._baseline.entries.keys())
-        backfilled: frozenset[str] = frozenset()
         base = self._git.resolve_base(base_ref)
         if base is None:
             bootstrap = self._no_base_scope(require_base=require_base)
@@ -82,20 +80,13 @@ class BaselineWriter:
             touched = self._in_scope(
                 diff.python_files(), current.keys() | scorer.parse_errors
             ) | self._vanished(diff.renames)
-            backfilled = missing - touched - diff.renames.keys()
             plan = UpdatePlan(
                 current,
-                touched | missing,
+                touched,
                 diff.renames,
                 parse_errors=touched & scorer.parse_errors,
             )
-        outcome = self._applier.apply(plan, source)
-        if outcome.exit_code:
-            return outcome
-        return Outcome(
-            outcome.exit_code,
-            outcome.lines + tuple(f"  backfilled: {p}" for p in sorted(backfilled)),
-        )
+        return self._applier.apply(plan, source)
 
     def _in_scope(
         self, paths: frozenset[str], scored: set[str] | frozenset[str]

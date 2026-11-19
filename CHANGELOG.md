@@ -7,6 +7,7 @@
 ### Fixed
 
 - Scoped OO and coupling `--update` now backfill and report missing baseline rows throughout the requested source tree, including committed files outside the diff and untracked files. Existing untouched rows and rename regression checks are preserved.
+- Backfilled rows are recorded separately in the audit log, without synthetic metric deltas or improvement counts. Touched new files retain their existing accounting.
 
 ## [0.3.0] - 2026-11-18
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Self
 
+from oo_ratchet.backfill import Backfill, UpdateReport
+
 from .audit import AuditLog
 from .baseline import Baseline
 from .gitio import GitRepo
@@ -50,6 +52,8 @@ class PlanApplier:
     def apply(self, plan: UpdatePlan, source: str | None) -> Outcome:
         """Apply the plan, save the baseline, append the audit, and report."""
         new_baseline = dict(self._baseline.entries)
+        backfill = Backfill(plan.current, new_baseline, plan.touched, plan.renames)
+        backfill.apply(new_baseline)
         refused: list[tuple[str, str]] = []
         deltas: dict[str, dict[str, list[float]]] = {}
         removed: list[str] = []
@@ -73,8 +77,12 @@ class PlanApplier:
             removed=removed,
             source=source,
             commit=self._git.short_head(),
+            **backfill.metadata,
         )
-        return self._report(len(deltas), len(removed), refused, broken)
+        outcome = self._report(len(deltas), len(removed), refused, broken)
+        return Outcome(
+            outcome.exit_code, outcome.lines + backfill.lines(outcome.exit_code)
+        )
 
     def _write_or_refuse(
         self,
@@ -202,17 +210,6 @@ class PlanApplier:
         refused: list[tuple[str, str]],
         broken: list[str],
     ) -> Outcome:
-        lines = [
-            f"\nBaseline updated: {self._baseline.path}",
-            f"  files improved: {improved}",
-            f"  files removed:  {removed}",
-        ]
-        if broken:
-            lines.append(f"  REFUSED ({len(broken)} unparseable, baseline kept):")
-            lines.extend(f"    {p}: parse error" for p in broken)
-        if refused:
-            lines.append(f"  REFUSED ({len({p for p, _ in refused})} files):")
-            lines.extend(f"    {p}: {m} regressed" for p, m in refused)
-        if refused or broken:
-            return Outcome(1, tuple(lines))
-        return Outcome(0, tuple(lines))
+        report = UpdateReport(self._baseline.path, improved, removed)
+        report.refuse(refused, broken)
+        return Outcome(report.exit_code, report.lines)
