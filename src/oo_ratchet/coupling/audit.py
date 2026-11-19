@@ -55,12 +55,13 @@ class CouplingAudit:
         source: str | None = None,
         reason: str | None = None,
         removed: list[str] | None = None,
-        improved: dict[str, dict[str, list[float]]] | None = None,
+        **metadata: dict[str, dict[str, list[float]]] | list[str],
     ) -> None:
         """Append one verdict entry, recording its source (PR/bead ref).
 
         ``reason`` carries the human justification for a ``relaxed`` verdict;
         it is an audit marker, not an enforcement gate.
+        ``metadata`` carries audit-only ``improved`` and ``backfilled`` fields.
         """
         entry: dict[str, object] = {
             "ts": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -75,8 +76,7 @@ class CouplingAudit:
         }
         if removed:
             entry["removed"] = removed
-        if improved:
-            entry["improved"] = improved
+        entry.update(metadata)
         with self._path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 

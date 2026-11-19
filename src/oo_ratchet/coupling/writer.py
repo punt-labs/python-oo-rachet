@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
+from oo_ratchet.backfill import Backfill, UpdateReport
+
 from .audit import CouplingAudit
 from .baseline import CouplingBaseline
 from .delta import BaselineDelta
@@ -48,7 +50,7 @@ class CouplingWriter:
         allow_ci_write: bool,
         source: str | None,
     ) -> Outcome:
-        """Update baseline entries for PR-touched files, never loosening.
+        """Update PR-touched files and backfill missing rows, never loosening.
 
         Mirrors ``check``'s fail-closed contract: on an unresolvable base a
         scoped update refuses rather than silently sweeping the whole tree. A
@@ -174,6 +176,8 @@ class CouplingWriter:
         source: str | None,
     ) -> Outcome:
         new_baseline = dict(self._baseline.entries)
+        backfill = Backfill(current, new_baseline, touched, renames)
+        backfill.apply(new_baseline)
         refused: list[tuple[str, str]] = []
         deltas: dict[str, dict[str, list[float]]] = {}
         removed = 0
@@ -198,8 +202,12 @@ class CouplingWriter:
             commit=self._git.short_head(),
             source=source,
             removed=gone,
+            **backfill.metadata,
         )
-        return self._report(len(deltas), removed, refused, broken)
+        outcome = self._report(len(deltas), removed, refused, broken)
+        return Outcome(
+            outcome.exit_code, outcome.lines + backfill.lines(outcome.exit_code)
+        )
 
     def _write_or_refuse(
         self,
@@ -293,17 +301,6 @@ class CouplingWriter:
         refused: list[tuple[str, str]],
         broken: list[str],
     ) -> Outcome:
-        lines = [
-            f"\nBaseline updated: {self._baseline.path}",
-            f"  files improved: {improved}",
-            f"  files removed:  {removed}",
-        ]
-        if broken:
-            lines.append(f"  REFUSED ({len(broken)} unparseable, baseline kept):")
-            lines.extend(f"    {p}: parse error" for p in broken)
-        if refused:
-            lines.append(f"  REFUSED ({len({p for p, _ in refused})} files):")
-            lines.extend(f"    {p}: {m} regressed" for p, m in refused)
-        if refused or broken:
-            return Outcome(1, tuple(lines))
-        return Outcome(0, tuple(lines))
+        report = UpdateReport(self._baseline.path, improved, removed)
+        report.refuse(refused, broken)
+        return Outcome(report.exit_code, report.lines)
