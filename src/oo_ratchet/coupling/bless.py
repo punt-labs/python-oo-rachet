@@ -99,8 +99,13 @@ class CouplingBless:
                     "FAIL: base ref unresolvable and --require-base is set"
                 )
             return None
+        reference = self._git.show_baseline(base)
+        if not reference and require_base:
+            return Outcome.failed(
+                "FAIL: no coupling baseline at the base and --require-base is set"
+            )
         self._renames = self._git.diff(base).renames
-        self._reference = self._git.show_baseline(base) or {}
+        self._reference = reference or {}
         return None
 
     @staticmethod

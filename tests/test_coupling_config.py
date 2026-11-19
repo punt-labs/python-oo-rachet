@@ -62,6 +62,8 @@ class TestConfigLoad:
             {"caps": {"a.py": {"efferent_coupling": True}}},
             {"caps": {"a.py": {}}},
             {"caps": {"/abs/a.py": {"efferent_coupling": 20}}},
+            {"caps": {"../a.py": {"efferent_coupling": 20}}},
+            {"caps": {"pkg/../../a.py": {"efferent_coupling": 20}}},
             {"caps": ["a.py"]},
             {"stateless-values": "all"},
             {"hub-caps": {}},
@@ -87,6 +89,12 @@ class TestConfigLoad:
         with pytest.raises(CouplingConfigError):
             CouplingConfig.load(tmp_path)
 
+    def test_equivalent_paths_normalize(self) -> None:
+        config = CouplingConfig.from_table(
+            {"caps": {"pkg/../pkg//hub.py": {"efferent_coupling": 20}}}
+        )
+        assert set(config.caps) == {"pkg/hub.py"}
+
     def test_bad_toml_is_controlled_error(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[tool\n")
         with pytest.raises(CouplingConfigError):
@@ -109,6 +117,12 @@ class TestPathCaps:
         assert CouplingThresholds.target_for(
             "efferent_coupling", "pkg/hub.py", _HUB_CAPS
         ) == ("<=", 20.0)
+
+    def test_equality_metric_cap_is_an_upper_bound(self) -> None:
+        caps = {"pkg/hub.py": {"circular_imports": 1.0}}
+        assert CouplingThresholds.meets("circular_imports", 0, "pkg/hub.py", caps)
+        assert CouplingThresholds.meets("circular_imports", 1, "pkg/hub.py", caps)
+        assert not CouplingThresholds.meets("circular_imports", 2, "pkg/hub.py", caps)
 
     def test_per_file_report_honors_cap(self, fx: GitFixture) -> None:
         _hub(fx, 9)
@@ -175,6 +189,16 @@ class TestCappedGrades:
         strict = CouplingScorer(fx.root / "pkg", fx.root)
         assert capped.grades["efferent_coupling"] == "PASS"
         assert strict.grades["efferent_coupling"] == "FAIL"
+
+    def test_averaged_metric_honors_cap(self, fx: GitFixture) -> None:
+        _hub(fx, 1)
+        fx.write("pkg/m0.py", _PUBLIC_STATE)
+        strict = CouplingScorer(fx.root / "pkg", fx.root)
+        assert strict.grades["avg_lcom"] == "FAIL" or strict.summary["avg_lcom"] <= 0.5
+        caps = {"pkg/m0.py": {"avg_lcom": 1.0, "max_lcom": 1.0}}
+        capped = CouplingScorer(fx.root / "pkg", fx.root, CouplingConfig(caps=caps))
+        assert capped.grades["avg_lcom"] == "PASS"
+        assert capped.grades["max_lcom"] == "PASS"
 
 
 class TestStatelessValues:
@@ -336,6 +360,21 @@ class TestCouplingBless:
             reason="r",
             source=None,
             allow_ci_write=True,
+            require_base=True,
+        )
+        assert outcome.exit_code == 1
+
+    def test_require_base_with_empty_base_baseline_fails(self, fx: GitFixture) -> None:
+        _hub(fx, 8)
+        fx.write_baseline({})
+        base = fx.commit("base without rows")
+        outcome = CouplingBless(fx.root, GitRepo(fx.root), _HUB_CAPS).apply(
+            {},
+            ["pkg/hub.py"],
+            reason="r",
+            source=None,
+            allow_ci_write=True,
+            base_ref=base,
             require_base=True,
         )
         assert outcome.exit_code == 1

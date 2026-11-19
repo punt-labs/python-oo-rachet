@@ -62,7 +62,8 @@ class CouplingThresholds:
         if filepath.endswith("__main__.py"):
             table.update(cls.MAIN_TABLE)
         for metric, cap in (caps or {}).get(filepath, {}).items():
-            table[metric] = (cls.TABLE[metric][0], cap)
+            op = cls.TABLE[metric][0]
+            table[metric] = ("<=" if op == "==" else op, cap)
         return table
 
     @classmethod

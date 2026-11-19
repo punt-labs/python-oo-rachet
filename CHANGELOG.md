@@ -8,7 +8,12 @@
 
 - `[tool.oo-ratchet.coupling] stateless-values = "any"`: LCOM skips every class that writes no private `self._*` state, counting `object`/`super()`/`type(self)` `.__setattr__` writes as state.
 - `[tool.oo-ratchet.coupling.caps]`: per-file metric caps keyed by exact repository-relative path, used by `--check`, the per-file report and the bless gate.
-- `oo-ratchet coupling --rebaseline-files PATHS --reason TEXT`: bounded, audited bless of named files; refuses a metric that is both over its cap and regressed.
+- `oo-ratchet coupling --rebaseline-files PATHS --reason TEXT`: bounded, audited bless of named files; refuses a metric that is both over its cap and regressed against the base-committed baseline.
+
+### Changed
+
+- LCOM's stateless-value check no longer looks inside nested classes, in either mode: an inner class's `self` stores don't block exempting its parent.
+- The summary grades (and exit code) judge a capped file against its cap and `__main__.py` against its relaxed table, so they agree with the per-file report.
 
 ## [0.1.0] - 2026-11-18
 

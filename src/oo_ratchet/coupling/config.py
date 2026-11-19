@@ -16,6 +16,7 @@ no private ``self._*`` state, whatever its shape.
 
 from __future__ import annotations
 
+import posixpath
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -101,10 +102,8 @@ class CouplingConfig:
     @staticmethod
     def _normalize(path: str) -> str:
         """Return ``path`` in the scorer's repo-relative POSIX key form."""
-        norm = path.replace("\\", "/")
-        while norm.startswith("./"):
-            norm = norm[2:]
-        if not norm or norm.startswith("/"):
+        norm = posixpath.normpath(path.replace("\\", "/")) if path else ""
+        if norm in ("", ".", "..") or norm.startswith(("/", "../")):
             msg = f"caps path {path!r} must be repository-relative"
             raise CouplingConfigError(msg)
         return norm

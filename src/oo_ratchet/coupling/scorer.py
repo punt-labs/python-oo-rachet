@@ -84,24 +84,39 @@ class CouplingScorer:
     def grades(self) -> dict[str, str]:
         """Return PASS/FAIL per aggregated metric.
 
-        A max-aggregated metric passes only if every file meets its own target
-        (``__main__`` relaxation and configured caps included); an averaged
-        metric is judged against the strict table.
+        A file with a configured cap for a metric is judged against that cap.
+        Otherwise a max-aggregated metric passes only if every file meets its
+        own target (``__main__`` relaxation included), and an averaged metric
+        compares the mean of the uncapped files with the strict table.
         """
         return {
             k: "PASS" if self._passes(k, v) else "FAIL" for k, v in self.summary.items()
         }
 
     def _passes(self, metric: str, value: float) -> bool:
-        if metric not in CouplingThresholds.MAX_AGGREGATED:
-            return CouplingThresholds.meets(metric, value)
-        return all(
-            CouplingThresholds.meets(
-                metric, float(r[metric]), str(r["file"]), self._config.caps
-            )
-            for r in self._results
-            if "error" not in r and metric in r
-        )
+        caps = self._config.caps
+        capped, rest = self._split_capped(metric)
+        if not all(CouplingThresholds.meets(metric, v, f, caps) for f, v in capped):
+            return False
+        if metric in CouplingThresholds.MAX_AGGREGATED:
+            return all(CouplingThresholds.meets(metric, v, f) for f, v in rest)
+        if capped and rest:
+            value = round(sum(v for _, v in rest) / len(rest), 3)
+        return not rest or CouplingThresholds.meets(metric, value)
+
+    def _split_capped(
+        self, metric: str
+    ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+        """Split scored ``(file, value)`` rows into capped and uncapped."""
+        capped: list[tuple[str, float]] = []
+        rest: list[tuple[str, float]] = []
+        for r in self._results:
+            if "error" in r or metric not in r:
+                continue
+            path = str(r["file"])
+            bucket = capped if metric in self._config.caps.get(path, {}) else rest
+            bucket.append((path, float(r[metric])))
+        return capped, rest
 
     @property
     def fail_count(self) -> int:
