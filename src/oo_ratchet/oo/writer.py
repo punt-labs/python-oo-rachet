@@ -68,7 +68,7 @@ class BaselineWriter:
             return blocked
         current = Baseline.metrics_by_file(scorer.results)
         missing = frozenset(current.keys() - self._baseline.entries.keys())
-        backfilled = missing
+        backfilled: frozenset[str] = frozenset()
         base = self._git.resolve_base(base_ref)
         if base is None:
             bootstrap = self._no_base_scope(require_base=require_base)
@@ -79,10 +79,10 @@ class BaselineWriter:
             )
         else:
             diff = self._git.diff(base)
-            backfilled = missing - diff.renames.keys()
             touched = self._in_scope(
                 diff.python_files(), current.keys() | scorer.parse_errors
             ) | self._vanished(diff.renames)
+            backfilled = missing - touched - diff.renames.keys()
             plan = UpdatePlan(
                 current,
                 touched | missing,
@@ -90,6 +90,8 @@ class BaselineWriter:
                 parse_errors=touched & scorer.parse_errors,
             )
         outcome = self._applier.apply(plan, source)
+        if outcome.exit_code:
+            return outcome
         return Outcome(
             outcome.exit_code,
             outcome.lines + tuple(f"  backfilled: {p}" for p in sorted(backfilled)),

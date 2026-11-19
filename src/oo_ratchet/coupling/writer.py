@@ -80,11 +80,14 @@ class CouplingWriter:
             touched & scorer.parse_errors,
             source,
         )
+        if outcome.exit_code:
+            return outcome
         return Outcome(
             outcome.exit_code,
             outcome.lines
             + tuple(
-                f"  backfilled: {p}" for p in sorted(missing - diff.renames.keys())
+                f"  backfilled: {p}"
+                for p in sorted(missing - touched - diff.renames.keys())
             ),
         )
 

@@ -49,6 +49,8 @@ def test_update_backfills_missing_rows(
         git_sandbox.run_git("checkout", "-b", "feature")
         git_sandbox.write("pkg/a.py", SOURCE + "\n# touched\n")
         git_sandbox.commit("touch a only")
+        git_sandbox.write("pkg/new.py", SOURCE)
+        git_sandbox.run_git("add", "pkg/new.py")
     elif scenario == "untracked":
         git_sandbox.write("pkg/b.py", SOURCE)
     else:
@@ -57,8 +59,43 @@ def test_update_backfills_missing_rows(
     assert run(["pkg", "--update", "--allow-ci-write"]) == 0
     result = json.loads(path.read_text())
     assert "pkg/b.py" in result
+    if scenario == "branch":
+        assert "pkg/new.py" in result
     assert result["pkg/untouched.py"] == entries["pkg/untouched.py"]
     assert result["pkg/a.py"] == entries["pkg/a.py"]
     output = capsys.readouterr().out
-    assert "backfilled" in output.lower()
-    assert "pkg/b.py" in output
+    assert "  backfilled: pkg/b.py" in output
+    assert "  backfilled: pkg/new.py" not in output
+
+
+@pytest.mark.parametrize("run", [coupling_main, oo_main])
+@pytest.mark.parametrize("scenario", ["bootstrap", "failure", "rename"])
+def test_update_backfill_reporting_exclusions(
+    git_sandbox: GitSandbox,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run: Callable[[list[str]], int],
+    scenario: str,
+) -> None:
+    monkeypatch.chdir(git_sandbox.root)
+    git_sandbox.write("pkg/a.py", SOURCE)
+    if scenario != "bootstrap":
+        assert run(["pkg", "--rebaseline", "--allow-ci-write"]) == 0
+    git_sandbox.write("pkg/b.py", SOURCE)
+    base = git_sandbox.commit("base")
+    if scenario != "bootstrap":
+        git_sandbox.run_git("update-ref", "refs/remotes/origin/main", base)
+    if scenario == "failure":
+        git_sandbox.write("pkg/a.py", "def broken(\n")
+    elif scenario == "rename":
+        git_sandbox.run_git("mv", "pkg/a.py", "pkg/renamed.py")
+    capsys.readouterr()
+    assert run(["pkg", "--update", "--allow-ci-write"]) == (
+        1 if scenario == "failure" else 0
+    )
+    output = capsys.readouterr().out
+    if scenario == "rename":
+        assert "  backfilled: pkg/b.py" in output
+        assert "  backfilled: pkg/renamed.py" not in output
+    else:
+        assert "backfilled:" not in output
