@@ -814,3 +814,73 @@ def test_cli_json_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     (tmp_path / "pkg" / "a.py").write_text(WITH_SUPPRESSIONS)
     monkeypatch.chdir(tmp_path)
     assert main(["pkg", "--json"]) == 0
+
+
+class TestMergedWaiverRetires:
+    """PL-1141: a merged ceiling covers nothing, so cleanups become real floors."""
+
+    @staticmethod
+    def _relax(gfx: GitFixture, base: str, justify: str = "reason") -> Outcome:
+        return gfx.baseline().relax(
+            gfx.report(),
+            target=gfx.root / "pkg",
+            base_ref=base,
+            file=str(gfx.root / "pkg" / "a.py"),
+            justify=justify,
+            allow_ci_write=True,
+        )
+
+    def _merge_waiver_then_cleanup(self, gfx: GitFixture) -> str:
+        gfx.write_source("x = 1  # noqa\n")
+        pre = gfx.commit("base")
+        gfx.write_source("x = 1  # noqa\ny = 2  # noqa\nz = 3  # noqa\n")
+        assert self._relax(gfx, pre).exit_code == 0
+        gfx.commit("merge the relaxed change")
+        gfx.write_source("x = 1\n")
+        return gfx.commit("cleanup")
+
+    def test_waiver_applies_on_post_merge_tripwire_base(self, gfx: GitFixture) -> None:
+        gfx.write_source("x = 1  # noqa\n")
+        pre = gfx.commit("base")
+        gfx.write_source("x = 1  # noqa\ny = 2  # noqa\n")
+        self._relax(gfx, pre)
+        gfx.commit("merge the relaxed change")
+        outcome = gfx.check(base_ref=pre, require_base=True)
+        assert outcome.exit_code == 0
+        assert any("waived" in line for line in outcome.lines)
+
+    def test_regrowth_after_cleanup_is_not_waived(self, gfx: GitFixture) -> None:
+        cleanup = self._merge_waiver_then_cleanup(gfx)
+        gfx.write_source("x = 1  # noqa\ny = 2  # noqa\n")
+        outcome = gfx.check(base_ref=cleanup, require_base=True)
+        assert outcome.exit_code == 1
+        assert any("+2 unwaived" in line for line in outcome.lines)
+
+    def test_fresh_relax_after_cleanup_waives_again(self, gfx: GitFixture) -> None:
+        cleanup = self._merge_waiver_then_cleanup(gfx)
+        gfx.write_source("x = 1  # noqa\ny = 2  # noqa\n")
+        assert self._relax(gfx, cleanup, justify="new reason").exit_code == 0
+        assert gfx.check(base_ref=cleanup, require_base=True).exit_code == 0
+
+    def test_merged_ledger_only_entry_grants_no_headroom(self, gfx: GitFixture) -> None:
+        gfx.write_source("x = 1  # noqa\n")
+        entry = {
+            "file": str(gfx.root / "pkg" / "a.py"),
+            "ceiling": 5,
+            "justify": "hand-written",
+            "added_at": "2026-01-01T00:00:00Z",
+        }
+        (gfx.root / ".suppression-relax.json").write_text(json.dumps([entry]))
+        merged = gfx.commit("ledger-only change")
+        gfx.write_source("x = 1  # noqa\ny = 2  # noqa\n")
+        outcome = gfx.check(base_ref=merged, require_base=True)
+        assert outcome.exit_code == 1
+        assert any("+1 unwaived" in line for line in outcome.lines)
+
+    def test_malformed_base_ledger_fails_closed(self, gfx: GitFixture) -> None:
+        gfx.write_source("x = 1  # noqa\n")
+        (gfx.root / ".suppression-relax.json").write_text("{ not json")
+        base = gfx.commit("bad ledger")
+        (gfx.root / ".suppression-relax.json").write_text("[]")
+        with pytest.raises(SuppressionRelaxError):
+            gfx.check(base_ref=base, require_base=True)

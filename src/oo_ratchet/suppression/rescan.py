@@ -64,6 +64,15 @@ class BaseRescanner:
                 new = "" if new == "." else new.rstrip("/") + "/"
             return SuppressionReport.rebased(scanned, old, new)
 
+    def text_at(self, ref: str, path: Path) -> str | None:
+        """Return ``path``'s committed text at ``ref``, or ``None`` if absent."""
+        rel = self.relpath(path)
+        if not self._git.path_exists_at_ref(ref, rel):
+            return None
+        with tempfile.TemporaryDirectory() as tmp:
+            self._git.archive_paths(ref, [rel], Path(tmp))
+            return (Path(tmp) / rel).read_text()
+
     def relpath(self, path: Path) -> str:
         """Return ``path`` as a POSIX path relative to the git repository root.
 

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+### Changed
+
+- **Behavior change (PL-1141):** a suppression waiver in `.suppression-relax.json` now only waives the change that adds it. Once the entry is on the comparison base (the merge-base, or `HEAD~1` for the post-merge tripwire) unchanged, it is retired and covers nothing. Before, a merged ceiling stayed live, so after a cleanup lowered a file's count, suppressions could grow back up to the old ceiling without a new waiver, and a ledger-only PR could pre-authorize future growth. A new rise in a file with a retired entry needs a fresh `oo-ratchet suppressions --relax FILE --justify ...`, which rewrites the entry. Retired entries can be deleted from the ledger.
+- An unparseable `.suppression-relax.json` on the comparison base now fails the check.
+
 ## [0.2.3] - 2026-11-18
 
 ### Fixed

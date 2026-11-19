@@ -66,6 +66,7 @@ class SuppressionBaseline:
         base_report = self._rescanner.rescan(base, target)
         if base_report is None:
             return self._absent_base(target, tripwire=tripwire)
+        self._relax.retire_merged(self._rescanner.text_at(base, self._relax.path))
         return self._compare(report, base_report)
 
     def _no_base(self, *, require_base: bool) -> Outcome:
@@ -155,13 +156,9 @@ class SuppressionBaseline:
         return Outcome.passed(*head, "\nPASS: suppression count unchanged")
 
     def _unwaived_rise(self, fpath: str, cur: int, base: int) -> int:
-        """Return the part of ``fpath``'s rise a recorded ceiling does not cover.
+        """Return the part of ``fpath``'s rise an active ceiling does not cover.
 
-        A ceiling caps the file's *total* count, not the size of any one
-        rise -- ``allowed`` is never below the base count, so once the base
-        rescan itself reflects a merged, relaxed change (``base >=
-        ceiling``), the ceiling stops covering anything and a fresh,
-        unrelated rise in the same file is fully unwaived again.
+        A ceiling caps the file's *total* count, never below the base count.
         """
         rise = cur - base
         if rise <= 0:
