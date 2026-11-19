@@ -101,7 +101,7 @@ class Scorer:
             key = cls._normalize(py_file, root)
             try:
                 results.append(cls._score_file(py_file, root))
-            except SyntaxError as e:
+            except (SyntaxError, UnicodeDecodeError, OSError) as e:
                 results.append({"file": key, "error": str(e)})
         return results
 

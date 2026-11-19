@@ -73,3 +73,12 @@ class TestNormalization:
         mod.write_text(GOOD)
         scorer = Scorer(mod, tmp_path)
         assert scorer.files == {"mod.py"}
+
+
+def test_undecodable_file_is_reported_not_raised(tmp_path: Path) -> None:
+    """A non-UTF-8 file becomes an error row instead of crashing the walk."""
+    (tmp_path / "good.py").write_text("from __future__ import annotations\n")
+    (tmp_path / "bad.py").write_bytes(b"x = '\xff\xfe'\n")
+    results = Scorer(tmp_path, tmp_path).results
+    errors = {r["file"]: r for r in results if "error" in r}
+    assert set(errors) == {"bad.py"}

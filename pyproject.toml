@@ -37,6 +37,16 @@ python_version = "3.13"
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["."]
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
 
 [tool.ruff]
 line-length = 88
