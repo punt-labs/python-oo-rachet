@@ -1,0 +1,89 @@
+[project]
+name = "oo-ratchet"
+version = "0.1.0"
+description = "Must-improve OO quality ratchet for Python repos: OO metrics, coupling/cohesion, and lint-suppression count gates."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [{ name = "Punt Labs" }]
+dependencies = []
+
+[project.scripts]
+oo-ratchet = "oo_ratchet.__main__:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.1",
+    "pyright>=1.1.400",
+    "pytest>=8.4",
+    "ruff>=0.13.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.14"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+addopts = "-ra -q"
+testpaths = ["tests"]
+markers = [
+    "slow: tests that drive real tmp git repos (run with -m slow)",
+]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "TID",  # flake8-tidy-imports
+    "RUF",  # Ruff-specific rules
+    "S",    # flake8-bandit (security)
+    "BLE",  # flake8-blind-except
+    "T10",  # flake8-debugger
+    "T20",  # flake8-print
+    "A",    # flake8-builtins
+    "ERA",  # flake8-eradicate (commented code)
+    "PIE",  # flake8-pie
+    "RSE",  # flake8-raise
+    "ARG",  # flake8-unused-arguments
+    "RET",  # flake8-return
+    "PERF", # perflint
+    "PTH",  # flake8-use-pathlib
+    "ISC",  # flake8-implicit-str-concat
+    "FBT",  # flake8-boolean-trap
+    "C90",  # mccabe complexity
+]
+extend-select = ["PLC0415"]
+
+ignore = [
+    "TC001",  # Move import into TYPE_CHECKING - too aggressive
+    "TC003",  # Move standard lib import into TYPE_CHECKING
+]
+
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "S108", "S603", "S607", "T20", "SLF001", "ARG", "FBT", "PLC0415", "C901"]
+"src/oo_ratchet/**" = ["T20", "S603", "S607", "C901", "PERF403", "SIM102", "N806", "C420"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+

@@ -1,0 +1,758 @@
+%
+% ratchet.tex
+%
+% Z Specification for the vox OO / coupling / suppression ratchet tools
+% Formal model of the shared fail-closed, base-commit-authoritative core
+% (unified in PR #312) and the three per-tool comparison deltas.
+%
+% This specification DOCUMENTS THE CODE AS IT IS. Three earlier divergences
+% between check-oo and the other two tools -- base-baseline hardening, the
+% empty-baseline intercept, and the never-loosen update -- were closed, so
+% the three tools now share a uniform contract; section "Findings" records
+% this. check-coupling has since gained the same audited waiver check-oo
+% carries (commit 0937d9d): the shared "Waiver" schema models it once, and
+% both OoCheck and CplCheck include it.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The vox Ratchet Tools: A Z Specification}
+\author{Formal model of check-oo, check-coupling, check-suppressions}
+\date{July 2026}
+\hypersetup{
+  pdftitle={The vox Ratchet Tools: A Z Specification},
+  pdfauthor={Punt Labs},
+  pdfsubject={Z Specification},
+  pdfcreator={fuzz/probcli}
+}
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Vox enforces three code-quality ratchets, each a command-line gate run
+under \texttt{make check} and in CI:
+
+\begin{itemize}
+\item \textbf{check-oo} (\texttt{tools/oo\_ratchet}): a \emph{must-improve}
+  ratchet on per-file object-orientation metrics.
+\item \textbf{check-coupling} (\texttt{tools/coupling}): a
+  \emph{regression-only} ratchet on per-file coupling/cohesion metrics.
+\item \textbf{check-suppressions} (\texttt{tools/suppression}): a
+  \emph{regression-only} ratchet on a single scalar --- the total count of
+  lint/type suppression comments plus \texttt{per-file-ignores}.
+\end{itemize}
+
+PR~\#312 unified all three onto one \emph{fail-closed,
+base-commit-authoritative} core. They differ only in what they compare.
+This document therefore models the shared core once --- base resolution,
+the fail-closed transition set, the CI-write guard, and the never-loosen
+update contract --- and then adds one operation schema per tool for the
+part that genuinely differs.
+
+The specification type-checks under \texttt{fuzz -t}. Property schemas
+restate the load-bearing guarantees --- fail-closed, never-loosen,
+base-commit-authoritative --- as type-checked predicates over the
+transition schemas. All three hold uniformly across the three tools;
+section~\ref{sec:findings} records how the last three per-tool exceptions
+were closed.
+
+\section{Basic Types}
+
+The three carriers the model needs no internal structure for: repository
+relative Python file paths, metric names, and git commit hashes.
+
+\begin{zed}
+[FILE, METRIC, COMMIT]
+\end{zed}
+
+\section{Free Types}
+
+The Boolean type: \texttt{fuzz} has none built in, and \texttt{ZBOOL}
+avoids the \texttt{BOOL}/\texttt{true}/\texttt{false} keyword clash that
+would defeat ProB.
+
+\begin{zed}
+ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+A metric's ordering direction. \texttt{dGeq} means larger is better
+(\texttt{>=} threshold), \texttt{dLeq} smaller is better (\texttt{<=}),
+and \texttt{dEq} means closer to a fixed target is better (\texttt{==}).
+
+\begin{zed}
+Direction ::= dGeq | dLeq | dEq
+\end{zed}
+
+The four outcomes a ratchet operation can produce. \texttt{pass} and
+\texttt{bootstrapPass} exit zero; \texttt{fail} and \texttt{failClosedError}
+exit non-zero. \texttt{bootstrapPass} is reserved for a genuine first
+adoption (no baseline anywhere); \texttt{failClosedError} is a controlled
+non-zero raised when git or the baseline blob is broken.
+
+\begin{zed}
+OUTCOME ::= pass | bootstrapPass | fail | failClosedError
+\end{zed}
+
+\begin{axdef}
+exitCode : OUTCOME \fun \nat
+\where
+exitCode = \{ pass \mapsto 0, bootstrapPass \mapsto 0,
+fail \mapsto 1, failClosedError \mapsto 1 \}
+\end{axdef}
+
+The fail-closed characterisation of the exit code is fixed by the
+definition above: \texttt{exitCode}$~o = 0$ exactly when $o = pass$ or
+$o = bootstrapPass$. The two non-zero outcomes are the two failure kinds.
+
+\section{Metric Ordering}
+
+Each metric carries a direction and an absolute target. These are the
+\texttt{Thresholds} tables in the code (\texttt{oo\_ratchet/thresholds.py},
+\texttt{coupling/thresholds.py}). The model leaves the tables abstract:
+only the ordering they induce matters to the ratchet.
+
+\begin{axdef}
+metricDir : METRIC \fun Direction \\
+metricTarget : METRIC \fun \num
+\end{axdef}
+
+Metric values are integers here. The code uses floats; \texttt{fuzz} has
+no reals, and the ratchet depends only on the \emph{ordering} of values,
+never on their exact magnitude, so $\num$ carries the model faithfully.
+
+The absolute value, defined without unary minus so \texttt{fuzz} and ProB
+stay happy.
+
+\begin{axdef}
+zabs : \num \fun \nat
+\where
+\forall n : \num @ (n \geq 0 \implies zabs~n = n) \\
+\quad~ \land (n < 0 \implies zabs~n + n = 0)
+\end{axdef}
+
+The distance of a value from a metric's target (used only by the
+\texttt{dEq} direction).
+
+\begin{axdef}
+dist : METRIC \cross \num \fun \nat
+\where
+\forall m : METRIC; v : \num @ dist(m, v) = zabs(v - metricTarget~m)
+\end{axdef}
+
+``At least as good as'': the ratchet's non-regression test.
+
+\begin{axdef}
+betterEq : METRIC \cross \num \cross \num \fun ZBOOL
+\where
+\forall m : METRIC; c, b : \num @ betterEq(m, c, b) = ztrue \\
+\quad~ \iff (metricDir~m = dGeq \land c \geq b) \\
+\quad~ \lor (metricDir~m = dLeq \land c \leq b) \\
+\quad~ \lor (metricDir~m = dEq \land dist(m, c) \leq dist(m, b))
+\end{axdef}
+
+``Strictly better'': the must-improve test.
+
+\begin{axdef}
+strictBetter : METRIC \cross \num \cross \num \fun ZBOOL
+\where
+\forall m : METRIC; c, b : \num @ strictBetter(m, c, b) = ztrue \\
+\quad~ \iff (metricDir~m = dGeq \land c > b) \\
+\quad~ \lor (metricDir~m = dLeq \land c < b) \\
+\quad~ \lor (metricDir~m = dEq \land dist(m, c) < dist(m, b))
+\end{axdef}
+
+``Meets its absolute threshold'': used to grade a brand-new file that has
+no baseline to improve against.
+
+\begin{axdef}
+meets : METRIC \cross \num \fun ZBOOL
+\where
+\forall m : METRIC; v : \num @ meets(m, v) = ztrue \\
+\quad~ \iff (metricDir~m = dGeq \land v \geq metricTarget~m) \\
+\quad~ \lor (metricDir~m = dLeq \land v \leq metricTarget~m) \\
+\quad~ \lor (metricDir~m = dEq \land v = metricTarget~m)
+\end{axdef}
+
+\section{Metric Maps}
+
+A file's metrics are a partial map from metric name to value; a baseline
+is a partial map from file to metric map.
+
+\begin{zed}
+MMAP == METRIC \pfun \num
+\end{zed}
+
+\begin{zed}
+BLINE == FILE \pfun MMAP
+\end{zed}
+
+The metrics of \texttt{c} that are worse than \texttt{b} --- the regressed
+set. A metric absent from \texttt{b} never regresses (a new metric is not
+a regression).
+
+\begin{axdef}
+worse : MMAP \cross MMAP \fun \finset METRIC
+\where
+\forall c, b : MMAP @ worse(c, b) = \\
+\quad~ \{ m : \dom c | m \in \dom b \land betterEq(m, c~m, b~m) = zfalse \}
+\end{axdef}
+
+The metrics of \texttt{c} that strictly improve on \texttt{b}.
+
+\begin{axdef}
+better : MMAP \cross MMAP \fun \finset METRIC
+\where
+\forall c, b : MMAP @ better(c, b) = \\
+\quad~ \{ m : \dom c | m \in \dom b \land strictBetter(m, c~m, b~m) = ztrue \}
+\end{axdef}
+
+Whether every metric of a map clears its absolute threshold.
+
+\begin{axdef}
+allMeet : MMAP \fun ZBOOL
+\where
+\forall c : MMAP @ allMeet~c = ztrue \iff \\
+\quad~ (\forall m : \dom c @ meets(m, c~m) = ztrue)
+\end{axdef}
+
+\section{The Shared Fail-Closed Core}
+
+Every check resolves a comparison base, reads the baseline committed
+\emph{at that base commit}, and only then compares. The resolution and
+the fail-closed decisions that precede the comparison are identical across
+all three tools (\texttt{ratchet.py} for check-oo, \texttt{ratchet.py} for
+check-coupling, \texttt{baseline.py} for check-suppressions).
+
+\subsection{The git environment}
+
+\texttt{GitEnv} records what the resolution phase can observe: whether the
+base resolves, whether a baseline blob exists at the base and whether it is
+corrupt, the same for the \texttt{origin/main} tip, whether an in-tree
+baseline file is present, and whether \texttt{-{}-require-base} was passed.
+The invariants encode the obvious well-formedness: a blob can be corrupt
+only if it exists, and can exist only if its ref resolves.
+
+\begin{schema}{GitEnv}
+baseResolves : ZBOOL \\
+baseHasBlob : ZBOOL \\
+baseCorrupt : ZBOOL \\
+tipResolves : ZBOOL \\
+tipHasBlob : ZBOOL \\
+tipCorrupt : ZBOOL \\
+inTreeExists : ZBOOL \\
+requireBase : ZBOOL
+\where
+baseCorrupt = ztrue \implies baseHasBlob = ztrue \\
+baseHasBlob = ztrue \implies baseResolves = ztrue \\
+tipCorrupt = ztrue \implies tipHasBlob = ztrue \\
+tipHasBlob = ztrue \implies tipResolves = ztrue
+\end{schema}
+
+\subsection{Base unresolvable}
+
+When no base commit can be found (\texttt{\_no\_base}): under
+\texttt{-{}-require-base} the gate fails; a genuine first adoption --- no
+in-tree baseline to protect --- bootstraps; otherwise an in-tree baseline
+with an unresolvable base means a stale or unfetched \texttt{origin/main},
+and the gate fails loudly rather than pass on trust.
+
+\begin{schema}{NoBase}
+GitEnv \\
+out! : OUTCOME
+\where
+baseResolves = zfalse \\
+requireBase = ztrue \implies out! = fail \\
+requireBase = zfalse \land inTreeExists = zfalse \implies \\
+\quad~ out! = bootstrapPass \\
+requireBase = zfalse \land inTreeExists = ztrue \implies out! = fail
+\end{schema}
+
+\subsection{Base resolves but carries no baseline blob}
+
+When the base commit has no baseline (\texttt{\_absent\_base\_baseline}):
+a genuine first adoption requires the \texttt{origin/main} tip to also
+lack a baseline. A corrupt tip blob is a controlled error. A tip that
+carries a baseline means the branch forked before adoption and would
+launder a regression past the empty base, so it fails. An unresolvable
+tip with an in-tree baseline present cannot confirm first adoption, so it
+fails closed.
+
+\begin{schema}{AbsentBase}
+GitEnv \\
+out! : OUTCOME
+\where
+baseResolves = ztrue \land baseHasBlob = zfalse \\
+tipCorrupt = ztrue \implies out! = failClosedError \\
+tipResolves = zfalse \land inTreeExists = ztrue \implies out! = fail \\
+tipResolves = zfalse \land inTreeExists = zfalse \implies \\
+\quad~ out! = bootstrapPass \\
+tipResolves = ztrue \land tipCorrupt = zfalse \land tipHasBlob = ztrue \\
+\quad~ \implies out! = fail \\
+tipResolves = ztrue \land tipHasBlob = zfalse \implies \\
+\quad~ out! = bootstrapPass
+\end{schema}
+
+\subsection{Base baseline blob corrupt}
+
+A base baseline that resolves and exists but fails to parse --- or is
+non-dict, carries a non-dict entry, holds a non-numeric or boolean metric,
+or is non-UTF8 --- raises \texttt{GitError}, which the CLI turns into a
+controlled non-zero. All three tools reject these uniformly: check-oo's
+\texttt{show\_baseline} (\texttt{oo\_ratchet/gitio.py}) and its in-tree
+\texttt{Baseline.\_load} now type-harden the blob exactly as coupling and
+suppression do, so a parseable-but-ill-typed baseline can never reach the
+comparison and raise an uncaught \texttt{TypeError}.
+
+\begin{schema}{BaseError}
+GitEnv \\
+out! : OUTCOME
+\where
+baseResolves = ztrue \land baseHasBlob = ztrue \land baseCorrupt = ztrue \\
+out! = failClosedError
+\end{schema}
+
+\subsection{Reaching the comparison}
+
+The comparison runs only when the base resolves and carries a readable
+baseline blob. \texttt{Proceed} names that precondition; each per-tool
+check schema includes it.
+
+\begin{schema}{Proceed}
+GitEnv
+\where
+baseResolves = ztrue \land baseHasBlob = ztrue \land baseCorrupt = zfalse
+\end{schema}
+
+\subsection{The CI-write guard}
+
+Every mutation (update, relax, reconcile, rebaseline) refuses to write
+under \texttt{GITHUB\_ACTIONS} unless \texttt{-{}-allow-ci-write} is
+passed. The guard is the same in all three tools.
+
+\begin{schema}{CiGuard}
+githubActions : ZBOOL \\
+allowCiWrite : ZBOOL \\
+blocked! : ZBOOL
+\where
+blocked! = ztrue \iff \\
+\quad~ (githubActions = ztrue \land allowCiWrite = zfalse)
+\end{schema}
+
+\subsection{Fail-closed properties}
+
+The fail-closed contract is that \texttt{bootstrapPass} arises \emph{only}
+from a genuine absence of baseline. These property schemas restate the
+guarantee as type-checked predicates over the transition schemas; each is
+a redundant strengthening of the schema it includes, so it has exactly the
+same models --- it documents the property without weakening it.
+
+\begin{schema}{NoBaseFailClosed}
+NoBase
+\where
+out! = bootstrapPass \implies inTreeExists = zfalse
+\end{schema}
+
+\begin{schema}{AbsentBaseFailClosed}
+AbsentBase
+\where
+out! = bootstrapPass \implies \\
+\quad~ (inTreeExists = zfalse \\
+\quad~ \lor (tipResolves = ztrue \land tipHasBlob = zfalse))
+\end{schema}
+
+\section{check-oo: The Must-Improve Ratchet}
+
+The OO ratchet is the strict one. On the comparison path it requires, of a
+change that touches any file already tracked in the base baseline, that at
+least one metric \emph{strictly} improve on such a file, and that no metric
+regress --- unless a regression is waived by an audited relaxation.
+
+\subsection{The empty-baseline intercept}
+
+The OO ratchet shares the coupling guard against an empty \texttt{\{\}}
+base baseline (\texttt{ratchet.py}'s \texttt{\_empty\_baseline}). Under
+\texttt{-{}-require-base} an empty base baseline --- a truncated write or a
+bad merge --- fails closed before the comparison, exactly like
+\texttt{CplEmptyRequire}; otherwise every touched file would look new and no
+regression could be seen. Without \texttt{-{}-require-base} the empty
+baseline flows through the comparison, where the touched-file parse check
+and the in-tree lock and completeness checks still run.
+
+\begin{schema}{OoEmptyRequire}
+Proceed \\
+baseCommit : COMMIT \\
+baselineAt : COMMIT \pfun BLINE \\
+baseB : BLINE \\
+out! : OUTCOME
+\where
+baseCommit \in \dom baselineAt \\
+baseB = baselineAt~baseCommit \\
+baseB = \emptyset \\
+requireBase = ztrue \\
+out! = fail
+\end{schema}
+
+\subsection{The audited waiver}
+
+check-oo and check-coupling both admit an audited waiver, and admit it on
+identical terms; only check-suppressions --- a single scalar --- does not. A
+touched file's metric is \emph{waived} (\texttt{RELAXED}) exactly when two
+conditions hold together: the in-tree baseline has locked the current value, so
+the regression was recorded rather than smuggled; and the audit log carries a
+matching \texttt{(file, metric)} relaxation recorded \emph{since} the base
+commit, so a historical relaxation cannot bless a fresh regression. The waiver
+is per-metric: a relaxation names only the metrics that actually worsened
+(\texttt{writer.py}'s \texttt{relax} records only the regressed metrics), so
+relaxing one metric never waives another.
+
+\texttt{Waiver} names this computation once, shared by both tools. It splits the
+raw regressions --- the touched \texttt{(file, metric)} pairs worse than the
+base-commit baseline --- into those a waiver covers (\texttt{waivedP}) and those
+it does not (\texttt{regressedP}). Only \texttt{regressedP} fails a gate.
+
+\begin{schema}{Waiver}
+inTree : BLINE \\
+current : BLINE \\
+baseB : BLINE \\
+touched : \finset FILE \\
+waivable : \finset (FILE \cross METRIC) \\
+wvd : \finset (FILE \cross METRIC) \\
+rawRegressed : \finset (FILE \cross METRIC) \\
+regressedP : \finset (FILE \cross METRIC) \\
+waivedP : \finset (FILE \cross METRIC)
+\where
+wvd = \{ f : touched; m : METRIC | f \in \dom inTree \land m \in \dom (inTree~f) \land inTree~f~m = current~f~m \land (f, m) \in waivable \} \\
+rawRegressed = \{ f : touched; m : METRIC | f \in \dom baseB \land m \in worse(current~f, baseB~f) \} \\
+regressedP = rawRegressed \setminus wvd \\
+waivedP = rawRegressed \cap wvd
+\end{schema}
+
+The waiver is scoped to the change: \texttt{waivable} is the set of
+\texttt{(file, metric)} pairs harvested from audit relaxations recorded
+\emph{since} the base commit (\texttt{audit.py}'s \texttt{relaxations\_since}),
+never the whole audit history. A relaxation blessed on an earlier change is
+absent from this set, so it cannot waive a regression introduced now.
+
+\subsection{Inputs}
+
+\texttt{OoCheck} carries the resolved base commit and the base-commit
+baseline (\texttt{baselineAt}$~$\texttt{baseCommit}, the authoritative
+comparison source --- \emph{never} the in-tree file); the current scores; the
+touched set (touched Python files that scored clean); and the touched files
+that failed to parse. The in-tree baseline, the waivable \texttt{(file,
+metric)} pairs, and the derived waived/regressed partition all come from the
+included \texttt{Waiver} schema --- the same waiver check-coupling uses.
+
+\begin{schema}{OoCheck}
+Proceed \\
+Waiver \\
+baseCommit : COMMIT \\
+baselineAt : COMMIT \pfun BLINE \\
+brokenTouched : \finset FILE \\
+missingF : \finset FILE \\
+lockFailF : \finset FILE \\
+basePresent : \finset FILE \\
+improvedExisting : ZBOOL \\
+newPasses : ZBOOL \\
+improvementOk : ZBOOL \\
+out! : OUTCOME
+\where
+baseCommit \in \dom baselineAt \\
+baseB = baselineAt~baseCommit \\
+\lnot (baseB = \emptyset \land requireBase = ztrue) \\
+touched \subseteq \dom current \\
+touched \cap brokenTouched = \emptyset \\
+missingF = \{ f : touched | f \notin \dom inTree \} \\
+lockFailF = \{ f : touched | f \in \dom inTree \land (\exists m : \dom (current~f) @ m \notin \dom (inTree~f) \lor inTree~f~m \neq current~f~m) \} \\
+basePresent = touched \cap \dom baseB \\
+improvedExisting = ztrue \iff \\
+\quad~ (\exists f : basePresent @ better(current~f, baseB~f) \neq \emptyset) \\
+newPasses = ztrue \iff \\
+\quad~ (\exists f : touched \setminus \dom baseB @ allMeet(current~f) = ztrue) \\
+improvementOk = ztrue \iff \\
+\quad~ waivedP \neq \emptyset \\
+\quad~ \lor (basePresent \neq \emptyset \land improvedExisting = ztrue) \\
+\quad~ \lor (basePresent = \emptyset \land newPasses = ztrue) \\
+brokenTouched \neq \emptyset \implies out! = fail \\
+brokenTouched = \emptyset \land touched = \emptyset \implies out! = pass \\
+brokenTouched = \emptyset \land touched \neq \emptyset \implies \\
+\quad~ (out! = pass \iff \\
+\quad~ (missingF = \emptyset \land lockFailF = \emptyset \\
+\quad~ \land regressedP = \emptyset \land improvementOk = ztrue)) \\
+out! \neq bootstrapPass \land out! \neq failClosedError
+\end{schema}
+
+The waiver itself is modelled by \texttt{Waiver} above; \texttt{OoCheck} adds
+only the must-improve gate on top of it. That gate follows the code's S5: if any
+touched file is tracked in the base, the required improvement must come from
+such a file; a pure-add change is satisfied by a new file clearing all absolute
+thresholds; a change carrying a waiver ($\mathit{waivedP} \neq \emptyset$) is
+exempt.
+
+\section{check-coupling: The Regression-Only Ratchet}
+
+The coupling ratchet drops the must-improve gate, the lock-in check, and the
+completeness check, but keeps check-oo's audited waiver (\texttt{Waiver}). A
+touched file fails only if a metric is strictly worse than its base-commit
+baseline \emph{and} the regression is not waived; holding steady passes, and so
+does a recorded, relaxation-blessed increase.
+
+\subsection{The empty-baseline intercept}
+
+Coupling shares the empty-baseline intercept with check-oo
+(\texttt{OoEmptyRequire}). An empty \texttt{\{\}} base baseline (a truncated
+write or a bad merge) under \texttt{-{}-require-base} fails closed before the
+comparison: otherwise every touched file would look new and no regression
+could be seen.
+
+\begin{schema}{CplEmptyRequire}
+Proceed \\
+baseCommit : COMMIT \\
+baselineAt : COMMIT \pfun BLINE \\
+baseB : BLINE \\
+out! : OUTCOME
+\where
+baseCommit \in \dom baselineAt \\
+baseB = baselineAt~baseCommit \\
+baseB = \emptyset \\
+requireBase = ztrue \\
+out! = fail
+\end{schema}
+
+\subsection{The comparison}
+
+The comparison runs when the base baseline is non-empty, or empty without
+\texttt{-{}-require-base} (in which case every file is new and passes). A
+file absent from the base is new: it never regresses. The included
+\texttt{Waiver} supplies the same \texttt{regressedP} check-oo uses: a metric
+that is worse than the base but locked in the in-tree baseline and covered by a
+relaxation recorded since the base commit is waived, and so falls out of
+\texttt{regressedP}. Only the unwaived regressions fail the gate.
+
+\begin{schema}{CplCheck}
+Proceed \\
+Waiver \\
+baseCommit : COMMIT \\
+baselineAt : COMMIT \pfun BLINE \\
+brokenTouched : \finset FILE \\
+out! : OUTCOME
+\where
+baseCommit \in \dom baselineAt \\
+baseB = baselineAt~baseCommit \\
+\lnot (baseB = \emptyset \land requireBase = ztrue) \\
+touched \subseteq \dom current \\
+touched \cap brokenTouched = \emptyset \\
+brokenTouched \neq \emptyset \implies out! = fail \\
+brokenTouched = \emptyset \land touched = \emptyset \implies out! = pass \\
+brokenTouched = \emptyset \land touched \neq \emptyset \implies \\
+\quad~ (out! = pass \iff regressedP = \emptyset) \\
+out! \neq bootstrapPass \land out! \neq failClosedError
+\end{schema}
+
+The waiver is why \texttt{CplCheck} still counts as \emph{regression-only}: the
+verdict turns solely on \texttt{regressedP}, the raw regressions minus the
+waived ones. A waived metric is not a passing metric that was forced to
+improve --- it is a recorded regression the audit log has blessed, so it never
+enters \texttt{regressedP} and never demands a compensating improvement.
+
+\section{check-suppressions: The Scalar-Count Ratchet}
+
+The suppression ratchet compares a single scalar: the total count of
+\texttt{noqa}, \texttt{type: ignore}, \texttt{pylint: disable},
+\texttt{pyright: ignore} comments on code lines, plus the number of ruff
+\texttt{per-file-ignores} rule codes. The check fails only if the current
+total exceeds the base-commit total. The base total is coerced defensively
+(\texttt{\_as\_int}): a non-numeric, boolean, \texttt{NaN}, or infinite
+value becomes $0$, which fails closed --- a smaller base makes the current
+total register as an increase.
+
+\begin{schema}{SupCheck}
+Proceed \\
+baseCommit : COMMIT \\
+supBaselineAt : COMMIT \pfun \nat \\
+baseTotal : \nat \\
+curTotal : \nat \\
+out! : OUTCOME
+\where
+baseCommit \in \dom supBaselineAt \\
+baseTotal = supBaselineAt~baseCommit \\
+curTotal > baseTotal \implies out! = fail \\
+curTotal \leq baseTotal \implies out! = pass \\
+out! \neq bootstrapPass \land out! \neq failClosedError
+\end{schema}
+
+\section{The Never-Loosen Update}
+
+\texttt{-{}-update} tightens a baseline but never loosens it. The base ref
+scopes the touched set only; the regression test is against the
+\emph{in-tree} baseline. check-oo and check-coupling share the per-metric
+algorithm (\texttt{apply.py}, \texttt{writer.py}); check-suppressions
+enforces the same guarantee on its single scalar total
+(\texttt{SupUpdate}).
+
+The rename-aware base lookup: a file inherits its predecessor's entry when
+it is a rename target absent from the baseline under its new name, so a
+regression cannot launder itself through a rename. A file with no entry and
+no rename predecessor is new; the empty metric map models ``no entry''
+(its \texttt{worse} set is empty, so a new file never regresses).
+
+\begin{axdef}
+baseFor : BLINE \cross (FILE \pinj FILE) \cross FILE \fun MMAP
+\where
+\forall b : BLINE; r : FILE \pinj FILE; f : FILE @ \\
+\quad~ (f \in \dom b \implies baseFor(b, r, f) = b~f) \\
+\quad~ \land (f \notin \dom b \land f \in \dom r \land r~f \in \dom b \implies baseFor(b, r, f) = b~(r~f)) \\
+\quad~ \land (f \notin \dom b \land \lnot (f \in \dom r \land r~f \in \dom b) \implies baseFor(b, r, f) = \emptyset)
+\end{axdef}
+
+\subsection{The update operation}
+
+The in-tree baseline is the state. A touched file is \emph{writable} when
+it scored clean and does not regress against its rename-aware in-tree base;
+\emph{refused} when it scored clean but regresses (its old entry is kept,
+so the carried base survives to the next run); dropped when it is gone from
+disk. Writing a rename target drops the stale source key. The write refuses
+under the CI guard, and fails the operation if anything was refused or
+unparseable.
+
+\begin{schema}{NeverLoosenUpdate}
+inTree : BLINE \\
+inTree' : BLINE \\
+current : BLINE \\
+touched : \finset FILE \\
+renames : FILE \pinj FILE \\
+parseErrTouched : \finset FILE \\
+githubActions : ZBOOL \\
+allowCiWrite : ZBOOL \\
+guarded : ZBOOL \\
+writable : \finset FILE \\
+refusedF : \finset FILE \\
+droppedMiss : \finset FILE \\
+droppedSet : \finset FILE \\
+updates : BLINE \\
+out! : OUTCOME
+\where
+guarded = ztrue \iff (githubActions = ztrue \land allowCiWrite = zfalse) \\
+writable = \{ f : touched | f \notin parseErrTouched \land f \in \dom current \land worse(current~f, baseFor(inTree, renames, f)) = \emptyset \} \\
+refusedF = \{ f : touched | f \notin parseErrTouched \land f \in \dom current \land worse(current~f, baseFor(inTree, renames, f)) \neq \emptyset \} \\
+droppedMiss = \{ f : touched | f \notin parseErrTouched \land f \notin \dom current \} \\
+droppedSet = droppedMiss \cup \ran (writable \dres renames) \\
+updates = writable \dres current \\
+guarded = ztrue \implies (out! = fail \land inTree' = inTree) \\
+guarded = zfalse \implies \\
+\quad~ inTree' = (droppedSet \ndres inTree) \oplus updates \\
+guarded = zfalse \land refusedF = \emptyset \land parseErrTouched = \emptyset \\
+\quad~ \implies out! = pass \\
+guarded = zfalse \land (refusedF \neq \emptyset \lor parseErrTouched \neq \emptyset) \\
+\quad~ \implies out! = fail \\
+out! \neq bootstrapPass \land out! \neq failClosedError
+\end{schema}
+
+\subsection{The never-loosen property}
+
+The guarantee: no metric of any file present both before and after the
+update is worse afterwards. This property schema restates it as a
+type-checked predicate over the operation.
+
+\begin{schema}{NeverLoosens}
+NeverLoosenUpdate
+\where
+\forall f : \dom inTree' \cap \dom inTree @ \\
+\quad~ worse(inTree'~f, inTree~f) = \emptyset
+\end{schema}
+
+\subsection{The suppression update}
+
+check-suppressions' \texttt{update} enforces the same never-loosen
+guarantee on its single scalar total (\texttt{baseline.py}'s
+\texttt{\_refuse\_increase}). Past the CI guard, an update whose current
+total exceeds the in-tree baseline total is refused: nothing is written and
+the operation fails, exactly as the OO and coupling writers refuse a
+per-metric regression. A decrease or an unchanged total writes normally.
+The state is the in-tree total; the written total is never larger than the
+prior total.
+
+\begin{schema}{SupUpdate}
+supTotal : \nat \\
+supTotal' : \nat \\
+curTotal : \nat \\
+githubActions : ZBOOL \\
+allowCiWrite : ZBOOL \\
+guarded : ZBOOL \\
+out! : OUTCOME
+\where
+guarded = ztrue \iff (githubActions = ztrue \land allowCiWrite = zfalse) \\
+guarded = ztrue \implies (out! = fail \land supTotal' = supTotal) \\
+guarded = zfalse \land curTotal > supTotal \implies \\
+\quad~ (out! = fail \land supTotal' = supTotal) \\
+guarded = zfalse \land curTotal \leq supTotal \implies \\
+\quad~ (out! = pass \land supTotal' = curTotal)
+\end{schema}
+
+The never-loosen property for the scalar total: the written total is no
+larger than the prior total. This property schema restates it as a
+type-checked predicate over the operation.
+
+\begin{schema}{SupNeverLoosens}
+SupUpdate
+\where
+supTotal' \leq supTotal
+\end{schema}
+
+\section{Findings}
+\label{sec:findings}
+
+Modelling the code once surfaced three places where check-oo diverged from
+check-coupling and check-suppressions. All three were closed by the change
+that unified the base-baseline hardening, the empty-baseline intercept, and
+the suppression update, so the three tools now share a uniform contract:
+
+\begin{itemize}
+\item \textbf{Fail-closed base-baseline hardening.} All three blob readers
+  reject a corrupt, non-dict, non-dict-entry, non-numeric, boolean, or
+  non-UTF8 base baseline as a controlled non-zero (\texttt{BaseError}).
+  check-oo's \texttt{show\_baseline} and \texttt{Baseline.\_load} now
+  type-harden the blob exactly as coupling and suppression do; no
+  ill-typed-but-parseable baseline reaches the comparison.
+\item \textbf{Empty-baseline intercept.} All three fail closed on an empty
+  \texttt{\{\}} base baseline under \texttt{-{}-require-base}
+  (\texttt{OoEmptyRequire}, \texttt{CplEmptyRequire}, and --- for
+  suppression --- the coerced base total of $0$ that any current count
+  exceeds). check-oo no longer lets an empty base baseline flow into the
+  comparison and pass a pure-add change as an ordinary \texttt{pass}.
+\item \textbf{Never-loosen update.} All three refuse to loosen on
+  \texttt{-{}-update}: check-oo and check-coupling refuse any per-metric
+  regression; check-suppressions refuses any increase in the scalar total
+  (\texttt{SupUpdate}, \texttt{SupNeverLoosens}).
+\end{itemize}
+
+\section{System Invariants}
+
+The three properties the unified core guarantees, and where each lives in
+this model:
+
+\begin{itemize}
+\item \textbf{Fail-closed} --- \texttt{bootstrapPass} arises only from a
+  genuine absence of baseline: \texttt{NoBaseFailClosed},
+  \texttt{AbsentBaseFailClosed}, and the \texttt{exitCode} definition.
+\item \textbf{Never-loosen} --- an update's written baseline is no worse on
+  any metric: \texttt{NeverLoosens} (check-oo and check-coupling) and
+  \texttt{SupNeverLoosens} (check-suppressions' scalar total).
+\item \textbf{Base-commit-authoritative} --- the comparison reads
+  $\mathit{baselineAt}~\mathit{baseCommit}$, never the in-tree baseline:
+  the equality $baseB = baselineAt~baseCommit$ in \texttt{OoCheck},
+  \texttt{CplCheck}, and (as a total) \texttt{SupCheck}. The in-tree
+  baseline appears in \texttt{OoCheck} for the lock-in and waiver tests, in
+  \texttt{CplCheck} (through \texttt{Waiver}) for the waiver test, and in
+  \texttt{NeverLoosenUpdate} as the never-loosen target.
+\end{itemize}
+
+\end{document}
