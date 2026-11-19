@@ -8,6 +8,9 @@ requires-python = ">=3.13"
 authors = [{ name = "Punt Labs" }]
 dependencies = []
 
+[project.urls]
+Repository = "https://github.com/punt-labs/python-oo-rachet"
+
 [project.scripts]
 oo-ratchet = "oo_ratchet.__main__:main"
 

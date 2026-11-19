@@ -20,7 +20,7 @@ in punt-kit; the formal model is [`docs/ratchet.tex`](docs/ratchet.tex).
 ## Install
 
 ```bash
-uv add --dev "oo-ratchet @ git+https://github.com/punt-labs/oo-ratchet@v0.1.0"
+uv add --dev "oo-ratchet @ git+https://github.com/punt-labs/python-oo-rachet@v0.1.0"
 ```
 
 Requires Python 3.13+. No runtime dependencies.
