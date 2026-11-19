@@ -47,6 +47,35 @@ flags. Baseline and audit files (`.oo-baseline.json`, `.oo-audit.jsonl`,
 `.oo-coupling-baseline.json`, ...) keep the same names as the embedded copies,
 so a repo switches over without rebaselining.
 
+## Configure
+
+Optional per-repository settings live in `pyproject.toml`; with none the strict
+defaults apply. Unknown keys, metrics or modes are an error, not ignored.
+
+```toml
+[tool.oo-ratchet.coupling]
+# "dataclass" (default): LCOM skips only @dataclass / __slots__ = () classes
+# that store no instance state. "any": skip every class that never writes a
+# private self._* attribute (object/super()/type(self).__setattr__ count).
+stateless-values = "any"
+
+[tool.oo-ratchet.coupling.caps]
+# Exact repository-relative paths; a cap replaces that metric's default target
+# for that one file (here a wiring hub whose job is importing many modules).
+"src/pkg/facade.py" = { efferent_coupling = 20 }
+```
+
+`oo-ratchet coupling <src> --rebaseline-files a.py,b.py --reason "<why>"` is the
+coupling counterpart of the OO bless: each named file is recorded unless a
+metric is both over its cap (configured caps included) and worse than its
+baseline; refused files are listed and not written, and the bless is audited
+and waives exactly those deltas at the next `--check`.
+
+`oo-ratchet suppressions <src> --rebaseline --reason "<why>" [--source PL-123]`
+resets the suppression baseline to the current counts. It's the one write that may
+raise the total (for example after a package upgrade changes the counter), and it
+is audited.
+
 ## Provenance
 
 Seeded from vox (`tools/oo_ratchet`, `tools/coupling`, `tools/suppression`),
@@ -55,7 +84,9 @@ then merged:
 - **quarry**: extraction provenance for new zero-class modules (`diffmodel.py`,
   `provenance.py`), coupling `--tripwire`, `tokenize`-based suppression scan.
 - **lux**: `--rebaseline-files` bounded bless with over-cap carry (`bless.py`),
-  vanished-row cleanup on `--update`, removed rows recorded in the audit log.
+  vanished-row cleanup on `--update`, removed rows recorded in the audit log;
+  in 0.2.0 the broad stateless-value LCOM exemption, exact-path coupling caps
+  (as `[tool.oo-ratchet.coupling]` config) and coupling `--rebaseline-files`.
 - **new here**: unreadable or non-UTF-8 files become error rows instead of
   crashing the OO scorer (PL-778).
 

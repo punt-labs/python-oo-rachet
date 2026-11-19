@@ -6,6 +6,7 @@ import ast
 from pathlib import Path
 from typing import Self
 
+from .config import CouplingConfig
 from .graph import ImportGraph
 from .imports import ImportResolver
 from .layout import PackageLayout
@@ -24,10 +25,17 @@ class CouplingScorer:
 
     _results: list[dict[str, float | int | str]]
     _packages: tuple[PackageMetrics, ...]
+    _config: CouplingConfig
 
-    def __new__(cls, target: Path, repo_root: Path | None = None) -> Self:
+    def __new__(
+        cls,
+        target: Path,
+        repo_root: Path | None = None,
+        config: CouplingConfig | None = None,
+    ) -> Self:
         self = super().__new__(cls)
         root = repo_root if repo_root is not None else Path.cwd()
+        self._config = config if config is not None else CouplingConfig()
         if target.is_file():
             layout = PackageLayout(target.parent)
             self._results = [self._safe_score(target, layout, frozenset(), root)]
@@ -46,6 +54,11 @@ class CouplingScorer:
     def results(self) -> list[dict[str, float | int | str]]:
         """Return the per-file metric dicts."""
         return self._results
+
+    @property
+    def config(self) -> CouplingConfig:
+        """Return the repository coupling settings this scorer applied."""
+        return self._config
 
     @property
     def packages(self) -> tuple[PackageMetrics, ...]:
@@ -69,11 +82,41 @@ class CouplingScorer:
 
     @property
     def grades(self) -> dict[str, str]:
-        """Return PASS/FAIL per aggregated metric against the strict table."""
+        """Return PASS/FAIL per aggregated metric.
+
+        A file with a configured cap for a metric is judged against that cap.
+        Otherwise a max-aggregated metric passes only if every file meets its
+        own target (``__main__`` relaxation included), and an averaged metric
+        compares the mean of the uncapped files with the strict table.
+        """
         return {
-            k: "PASS" if CouplingThresholds.meets(k, v) else "FAIL"
-            for k, v in self.summary.items()
+            k: "PASS" if self._passes(k, v) else "FAIL" for k, v in self.summary.items()
         }
+
+    def _passes(self, metric: str, value: float) -> bool:
+        caps = self._config.caps
+        capped, rest = self._split_capped(metric)
+        if not all(CouplingThresholds.meets(metric, v, f, caps) for f, v in capped):
+            return False
+        if metric in CouplingThresholds.MAX_AGGREGATED:
+            return all(CouplingThresholds.meets(metric, v, f) for f, v in rest)
+        if capped and rest:
+            value = round(sum(v for _, v in rest) / len(rest), 3)
+        return not rest or CouplingThresholds.meets(metric, value)
+
+    def _split_capped(
+        self, metric: str
+    ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+        """Split scored ``(file, value)`` rows into capped and uncapped."""
+        capped: list[tuple[str, float]] = []
+        rest: list[tuple[str, float]] = []
+        for r in self._results:
+            if "error" in r or metric not in r:
+                continue
+            path = str(r["file"])
+            bucket = capped if metric in self._config.caps.get(path, {}) else rest
+            bucket.append((path, float(r[metric])))
+        return capped, rest
 
     @property
     def fail_count(self) -> int:
@@ -108,7 +151,9 @@ class CouplingScorer:
             layout.name,
             is_package=py_file.name == "__init__.py",
         )
-        metrics = ModuleCouplingMetrics(key, tree, resolver).compute()
+        metrics = ModuleCouplingMetrics(
+            key, tree, resolver, self._config.stateless_values
+        ).compute()
         metrics["circular_imports"] = 1 if mod_key in cycle else 0
         return metrics
 

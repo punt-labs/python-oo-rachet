@@ -268,6 +268,28 @@ class SuppressionBaseline:
         )
         return Outcome.passed(*lines)
 
+    def rebaseline(
+        self,
+        report: SuppressionReport,
+        *,
+        reason: str,
+        source: str | None,
+        allow_ci_write: bool,
+    ) -> Outcome:
+        """Reset the baseline to the current counts; the one audited raise."""
+        blocked = self._guard(allow_ci_write=allow_ci_write)
+        if blocked is not None:
+            return blocked
+        if not reason.strip():
+            return Outcome.failed("FAIL: --rebaseline requires --reason <text>")
+        before = self._file.rebaseline(
+            report, reason=reason, source=source, commit=self._git.short_head()
+        )
+        return Outcome.passed(
+            f"\nBaseline rebaselined: {self._file.path} (reason: {reason})",
+            f"  total: {before if before is not None else '(none)'} -> {report.total}",
+        )
+
     @staticmethod
     def _guard(*, allow_ci_write: bool) -> Outcome | None:
         if os.environ.get("GITHUB_ACTIONS") == "true" and not allow_ci_write:

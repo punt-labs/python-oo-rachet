@@ -10,7 +10,9 @@ class CouplingThresholds:
 
     ``__main__.py`` legitimately wires many modules and exposes many command
     names, so it gets relaxed ``efferent_coupling`` and ``public_names`` targets
-    while every other metric keeps the strict table.
+    while every other metric keeps the strict table. ``caps`` (exact
+    repo-relative path -> metric -> cap, from ``CouplingConfig``) override the
+    target for the named files only.
     """
 
     TABLE: ClassVar[dict[str, tuple[str, float]]] = {
@@ -43,15 +45,37 @@ class CouplingThresholds:
         return f"{op} {target}"
 
     @classmethod
-    def _table_for(cls, filepath: str) -> dict[str, tuple[str, float]]:
-        if filepath.endswith("__main__.py"):
-            return {**cls.TABLE, **cls.MAIN_TABLE}
-        return cls.TABLE
+    def target_for(
+        cls,
+        metric: str,
+        filepath: str = "",
+        caps: dict[str, dict[str, float]] | None = None,
+    ) -> tuple[str, float]:
+        """Return the ``(op, target)`` that ``filepath`` is judged against."""
+        return cls._table_for(filepath, caps)[metric]
 
     @classmethod
-    def meets(cls, metric: str, value: float, filepath: str = "") -> bool:
+    def _table_for(
+        cls, filepath: str, caps: dict[str, dict[str, float]] | None = None
+    ) -> dict[str, tuple[str, float]]:
+        table = dict(cls.TABLE)
+        if filepath.endswith("__main__.py"):
+            table.update(cls.MAIN_TABLE)
+        for metric, cap in (caps or {}).get(filepath, {}).items():
+            op = cls.TABLE[metric][0]
+            table[metric] = ("<=" if op == "==" else op, cap)
+        return table
+
+    @classmethod
+    def meets(
+        cls,
+        metric: str,
+        value: float,
+        filepath: str = "",
+        caps: dict[str, dict[str, float]] | None = None,
+    ) -> bool:
         """Return whether value satisfies the metric's absolute threshold."""
-        table = cls._table_for(filepath)
+        table = cls._table_for(filepath, caps)
         if metric not in table:
             return True
         op, target = table[metric]

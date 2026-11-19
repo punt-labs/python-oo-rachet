@@ -23,10 +23,13 @@ class Options:
     src: Path
     check: bool
     update: bool
+    rebaseline: bool
     json: bool
     threshold: bool
     relax: str | None
     justify: str
+    reason: str
+    source: str | None
     base_ref: str | None
     require_base: bool
     allow_ci_write: bool
@@ -40,10 +43,13 @@ class Options:
             src=Path(ns.src),
             check=bool(ns.check),
             update=bool(ns.update),
+            rebaseline=bool(ns.rebaseline),
             json=bool(ns.json),
             threshold=bool(ns.threshold),
             relax=ns.relax,
             justify=ns.justify or "",
+            reason=ns.reason or "",
+            source=ns.source,
             base_ref=ns.base_ref,
             require_base=bool(ns.require_base),
             allow_ci_write=bool(ns.allow_ci_write),
@@ -60,10 +66,19 @@ class Options:
         action = parser.add_mutually_exclusive_group()
         action.add_argument("--check", action="store_true", help="ratchet check")
         action.add_argument("--update", action="store_true", help="update baseline")
+        action.add_argument(
+            "--rebaseline",
+            action="store_true",
+            help="audited reset to current counts (may raise), --reason required",
+        )
         action.add_argument("--threshold", action="store_true", help="per-file table")
         action.add_argument("--json", action="store_true", help="emit JSON counts")
         action.add_argument("--relax", metavar="FILE", help="waive one file's rise")
         parser.add_argument("--justify", default="", help="justification for --relax")
+        parser.add_argument("--reason", default="", help="reason for --rebaseline")
+        parser.add_argument(
+            "--source", metavar="REF", help="PR/issue recorded in the audit entry"
+        )
         parser.add_argument("--base-ref", metavar="REF", help="comparison base commit")
         parser.add_argument(
             "--require-base", action="store_true", help="fail if base unresolvable"
@@ -132,6 +147,13 @@ class Cli:
             )
         if opts.update:
             return baseline.update(report, allow_ci_write=opts.allow_ci_write)
+        if opts.rebaseline:
+            return baseline.rebaseline(
+                report,
+                reason=opts.reason,
+                source=opts.source,
+                allow_ci_write=opts.allow_ci_write,
+            )
         if opts.relax is not None:
             return baseline.relax(
                 report,
