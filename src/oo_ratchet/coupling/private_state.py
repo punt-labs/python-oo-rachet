@@ -90,6 +90,9 @@ class PrivateState:
 
     @classmethod
     def _is_private_attr(cls, node: ast.expr) -> bool:
+        """Return True for ``self._x``, also through ``[k]`` (``self._x[k][j]``)."""
+        while isinstance(node, ast.Subscript):
+            node = node.value
         return (
             isinstance(node, ast.Attribute)
             and cls._is_self(node.value)

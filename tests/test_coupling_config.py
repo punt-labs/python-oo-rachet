@@ -225,6 +225,8 @@ class TestStatelessValues:
             'del self._cache["{n}"]',
             "self._cache.update({n}=1)",
             'self._items.append("{n}")',
+            'self._groups["{n}"].append(1)',
+            'self._grid[0]["{n}"] = 1',
         ],
     )
     def test_any_still_measures_private_writes(self, write: str) -> None:
