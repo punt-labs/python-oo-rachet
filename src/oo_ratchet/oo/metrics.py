@@ -6,6 +6,8 @@ import ast
 from collections.abc import Iterator
 from typing import ClassVar, Self
 
+from oo_ratchet.oo.code_lines import CodeLines
+
 
 class ModuleMetrics:
     """Compute OO quality metrics for one parsed module."""
@@ -29,7 +31,7 @@ class ModuleMetrics:
         self = super().__new__(cls)
         self._path = path
         self._tree = ast.parse(source, filename=path)
-        self._source_lines = len([line for line in source.splitlines() if line.strip()])
+        self._source_lines = CodeLines(source, self._tree).count
         return self
 
     def compute(self) -> dict[str, float | int | str]:

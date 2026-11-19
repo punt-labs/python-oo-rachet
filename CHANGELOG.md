@@ -8,6 +8,8 @@
 
 - **Behavior change (PL-1141):** a suppression waiver in `.suppression-relax.json` now only waives the change that adds it. Once the entry is on the comparison base (the merge-base, or `HEAD~1` for the post-merge tripwire) unchanged, it is retired and covers nothing. Before, a merged ceiling stayed live, so after a cleanup lowered a file's count, suppressions could grow back up to the old ceiling without a new waiver, and a ledger-only PR could pre-authorize future growth. A new rise in a file with a retired entry needs a fresh `oo-ratchet suppressions --relax FILE --justify ...`, which rewrites the entry. Retired entries can be deleted from the ledger.
 - An unparseable `.suppression-relax.json` on the comparison base now fails the check.
+- **Behavior change:** `module_size` now counts only lines that carry code. Docstrings (module, class and function), comments and blank lines no longer count; before, every non-blank line did. Every module's `module_size` drops, so committed `.oo-baseline.json` rows read high: touched files show it as an improvement, and a repo can refresh all rows with an audited `oo-ratchet oo SRC --rebaseline-files ... --reason ...`. The 300-line cap now applies to code lines.
+- Suppression waiver timestamps (`added_at`) now carry microseconds, so a re-relax within the same second never matches a merged entry.
 
 ## [0.2.3] - 2026-11-18
 

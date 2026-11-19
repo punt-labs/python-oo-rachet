@@ -66,9 +66,7 @@ class SuppressionRelax:
 
     def retire_merged(self, base_text: str | None) -> None:
         """Retire every entry the base commit's ledger already carries unchanged."""
-        if base_text is None:
-            return
-        merged = self._parse(base_text)
+        merged = self._parse(base_text) if base_text is not None else {}
         self._retired = {f for f, e in merged.items() if self._entries.get(f) == e}
 
     def add(self, *, file: str, ceiling: int, justify: str) -> None:
@@ -141,4 +139,4 @@ class SuppressionRelax:
 
     @staticmethod
     def _now() -> str:
-        return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")

@@ -884,3 +884,18 @@ class TestMergedWaiverRetires:
         (gfx.root / ".suppression-relax.json").write_text("[]")
         with pytest.raises(SuppressionRelaxError):
             gfx.check(base_ref=base, require_base=True)
+
+    def test_same_second_relax_to_old_ceiling_is_fresh(self, gfx: GitFixture) -> None:
+        cleanup = self._merge_waiver_then_cleanup(gfx)
+        gfx.write_source("x = 1  # noqa\ny = 2  # noqa\nz = 3  # noqa\n")
+        assert self._relax(gfx, cleanup).exit_code == 0
+        assert gfx.check(base_ref=cleanup, require_base=True).exit_code == 0
+
+    def test_base_without_ledger_clears_retirements(self, tmp_path: Path) -> None:
+        ledger = SuppressionRelax(tmp_path)
+        ledger.add(file="a.py", ceiling=2, justify="reason")
+        merged = (tmp_path / SuppressionRelax.RELAX_FILE).read_text()
+        ledger.retire_merged(merged)
+        assert ledger.ceiling("a.py") is None
+        ledger.retire_merged(None)
+        assert ledger.ceiling("a.py") == 2
