@@ -28,9 +28,11 @@ class CouplingWriter:
     _baseline: CouplingBaseline
     _audit: CouplingAudit
     _git: GitRepo
+    _root: Path
 
     def __new__(cls, root: Path, git: GitRepo) -> Self:
         self = super().__new__(cls)
+        self._root = root
         self._baseline = CouplingBaseline(root)
         self._audit = CouplingAudit(root)
         self._git = git
@@ -64,7 +66,11 @@ class CouplingWriter:
                 current, frozenset(current), {}, scorer.parse_errors, source
             )
         diff = self._git.diff(base)
-        touched = diff.python_files()
+        touched = frozenset(
+            p
+            for p in diff.python_files()
+            if p in current or not (self._root / p).exists()
+        )
         return self._apply(
             current, touched, diff.renames, touched & scorer.parse_errors, source
         )

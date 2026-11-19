@@ -77,7 +77,9 @@ class BaselineWriter:
             )
         else:
             diff = self._git.diff(base)
-            touched = diff.python_files() | self._vanished(diff.renames)
+            touched = self._in_scope(diff.python_files(), current) | self._vanished(
+                diff.renames
+            )
             plan = UpdatePlan(
                 current,
                 touched,
@@ -85,6 +87,18 @@ class BaselineWriter:
                 parse_errors=touched & scorer.parse_errors,
             )
         return self._applier.apply(plan, source)
+
+    def _in_scope(
+        self, paths: frozenset[str], current: dict[str, dict[str, float]]
+    ) -> frozenset[str]:
+        """Keep diff paths that were scored or are gone; skip on-disk files outside src.
+
+        Without this, ``--update`` on one file would read every other modified
+        file as deleted (absent from ``current``) and drop its baseline row.
+        """
+        return frozenset(
+            p for p in paths if p in current or not (self._root / p).exists()
+        )
 
     def _vanished(self, renames: dict[str, str]) -> frozenset[str]:
         """Return baseline rows whose file is gone from the tree.
